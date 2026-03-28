@@ -12,8 +12,8 @@ import { existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'csv-parse/sync';
 import { loadConfig } from '../config/defaults.js';
-import { executeRun, listRuns, getRun, getRunOutputFiles } from '../core/pipeline-runner.js';
-import type { RunMode } from '../core/pipeline-runner.js';
+import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
+import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -115,10 +115,15 @@ export function createApp(baseOutputDir: string) {
       // Collect input file paths
       let inputFiles: string[] = [];
 
-      // Files uploaded via multipart
+      // Files uploaded via multipart — rename to preserve original filename
       const uploaded = req.files as Express.Multer.File[] | undefined;
       if (uploaded && uploaded.length > 0) {
-        inputFiles = uploaded.map((f) => f.path);
+        const { renameSync } = await import('node:fs');
+        inputFiles = uploaded.map((f) => {
+          const dest = join(uploadDir, f.originalname);
+          renameSync(f.path, dest);
+          return dest;
+        });
       }
 
       // Or file paths specified directly
@@ -144,6 +149,145 @@ export function createApp(baseOutputDir: string) {
       res.json(meta);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
+    }
+  });
+
+  // --- API: Delete a run ---
+  app.delete('/api/runs/:id', (req, res) => {
+    const deleted = deleteRun(baseOutputDir, req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Run not found' });
+    res.json({ ok: true });
+  });
+
+  // --- API: Re-run (clone settings from existing run) ---
+  app.post('/api/runs/:id/rerun', async (req, res) => {
+    try {
+      const original = getRun(baseOutputDir, req.params.id);
+      if (!original) return res.status(404).json({ error: 'Run not found' });
+
+      const configPath = original.configPath || undefined;
+      const config = loadConfig(configPath);
+      config.outputDir = baseOutputDir;
+
+      const meta = await executeRun(original.mode, original.inputFiles, config, configPath);
+      res.json(meta);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Re-run failed' });
+    }
+  });
+
+  // --- API: SSE progress stream ---
+  app.get('/api/runs/:id/progress', (req, res) => {
+    const runId = req.params.id;
+    const emitter = getRunEmitter(runId);
+
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    if (!emitter) {
+      // Run already finished or doesn't exist
+      const run = getRun(baseOutputDir, runId);
+      const status = run ? run.status : 'not_found';
+      res.write(`data: ${JSON.stringify({ step: 'done', detail: status, percent: 100 })}\n\n`);
+      res.end();
+      return;
+    }
+
+    const onProgress = (evt: ProgressEvent) => {
+      res.write(`data: ${JSON.stringify(evt)}\n\n`);
+    };
+    const onComplete = () => {
+      res.write(`data: ${JSON.stringify({ step: 'done', detail: 'completed', percent: 100 })}\n\n`);
+      res.end();
+    };
+    const onError = () => {
+      res.write(`data: ${JSON.stringify({ step: 'done', detail: 'failed', percent: 100 })}\n\n`);
+      res.end();
+    };
+
+    emitter.on('progress', onProgress);
+    emitter.on('complete', onComplete);
+    emitter.on('error', onError);
+
+    req.on('close', () => {
+      emitter.off('progress', onProgress);
+      emitter.off('complete', onComplete);
+      emitter.off('error', onError);
+    });
+  });
+
+  // --- API: Read source (original input) data for before/after comparison ---
+  app.get('/api/runs/:id/source-data', (req, res) => {
+    const run = getRun(baseOutputDir, req.params.id);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const fileIndex = parseInt(String(req.query.fileIndex ?? '0'), 10);
+    if (fileIndex < 0 || fileIndex >= run.inputFiles.length) {
+      return res.status(400).json({ error: 'Invalid fileIndex' });
+    }
+    const filePath = run.inputFiles[fileIndex];
+    if (!existsSync(filePath) || extname(filePath) !== '.csv') {
+      return res.status(404).json({ error: 'Source file not found or not CSV' });
+    }
+
+    const offset = parseInt(String(req.query.offset ?? '0'), 10);
+    const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10), 500);
+
+    try {
+      const content = readFileSync(filePath, 'utf-8');
+      const records = parse(content, { columns: true, skip_empty_lines: true, bom: true }) as Record<string, string>[];
+      const columns = records.length > 0 ? Object.keys(records[0]) : [];
+      const page = records.slice(offset, offset + limit);
+
+      res.json({ columns, totalCount: records.length, offset, limit, rows: page });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Read failed' });
+    }
+  });
+
+  // --- API: Duplicate groups (grouped view) ---
+  app.get('/api/runs/:id/duplicates', (req, res) => {
+    const run = getRun(baseOutputDir, req.params.id);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const filePath = join(run.outputDir, 'duplicates.csv');
+    if (!existsSync(filePath)) {
+      return res.status(404).json({ error: 'No duplicates file' });
+    }
+
+    try {
+      const content = readFileSync(filePath, 'utf-8');
+      const records = parse(content, { columns: true, skip_empty_lines: true, bom: true }) as Record<string, string>[];
+
+      // Group by group_id
+      const groups = new Map<string, { matchType: string; matchKey: string; records: Record<string, string>[] }>();
+      for (const rec of records) {
+        const gid = rec.group_id || rec.groupId || '';
+        if (!gid) continue;
+        if (!groups.has(gid)) {
+          groups.set(gid, {
+            matchType: rec.match_type || rec.matchType || '',
+            matchKey: rec.match_key || rec.matchKey || '',
+            records: [],
+          });
+        }
+        groups.get(gid)!.records.push(rec);
+      }
+
+      const result = Array.from(groups.entries()).map(([id, g]) => ({
+        groupId: id,
+        matchType: g.matchType,
+        matchKey: g.matchKey,
+        count: g.records.length,
+        records: g.records,
+      }));
+
+      res.json({ totalGroups: result.length, groups: result });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Read failed' });
     }
   });
 

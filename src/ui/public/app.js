@@ -97,7 +97,10 @@ async function renderDashboard() {
 
 // --- New Run ---
 
+let uploadedFiles = [];
+
 async function renderNewRun() {
+  uploadedFiles = [];
   let configs = [];
   try { configs = await api('/api/configs'); } catch { /* ignore */ }
 
@@ -128,11 +131,27 @@ async function renderNewRun() {
         </div>
 
         <div class="form-group">
-          <label>入力ファイル（ローカルパスを指定）</label>
-          <textarea name="filePaths" placeholder="1行に1ファイルパスを入力&#10;例:&#10;/Users/you/data/apo_list_2024.csv&#10;/Users/you/data/product_a_customers.csv" rows="4"></textarea>
+          <label>入力ファイル — ドラッグ＆ドロップまたはクリックでアップロード</label>
+          <div class="drop-zone" id="drop-zone">
+            <p>CSV / XLSX ファイルをここにドロップ<br>またはクリックしてファイルを選択</p>
+            <input type="file" id="file-input" multiple accept=".csv,.xlsx" style="display:none">
+            <div class="file-list-preview" id="file-preview"></div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>または、ローカルパスを直接指定</label>
+          <textarea name="filePaths" placeholder="1行に1ファイルパスを入力&#10;例:&#10;/Users/you/data/apo_list_2024.csv" rows="3"></textarea>
           <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">
             サーバーが読み取れるローカルファイルの絶対パスまたは相対パスを指定してください
           </p>
+        </div>
+
+        <div id="progress-area" style="display:none">
+          <div class="progress-container">
+            <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill"></div></div>
+            <div class="progress-step" id="progress-text"></div>
+          </div>
         </div>
 
         <div style="display:flex;gap:8px;align-items:center">
@@ -143,6 +162,21 @@ async function renderNewRun() {
     </div>
   `;
 
+  // Drop zone setup
+  const dropZone = $('#drop-zone');
+  const fileInput = $('#file-input');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    addFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+
+  // Form submit
   $('#run-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const form = e.target;
@@ -151,24 +185,42 @@ async function renderNewRun() {
 
     btn.disabled = true;
     status.textContent = '実行中...';
+    status.style.color = 'var(--text-secondary)';
 
     try {
       const mode = form.mode.value;
       const configPath = form.configPath.value;
-      const filePaths = form.filePaths.value
-        .split('\n')
-        .map(s => s.trim())
-        .filter(Boolean);
+      const filePathsText = form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean);
 
-      if (filePaths.length === 0) {
+      if (uploadedFiles.length === 0 && filePathsText.length === 0) {
         throw new Error('入力ファイルを指定してください');
       }
 
-      const result = await api('/api/runs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode, configPath, filePaths }),
-      });
+      let result;
+      if (uploadedFiles.length > 0) {
+        // Use multipart upload
+        const formData = new FormData();
+        formData.append('mode', mode);
+        if (configPath) formData.append('configPath', configPath);
+        for (const f of uploadedFiles) {
+          formData.append('files', f);
+        }
+        if (filePathsText.length > 0) {
+          formData.append('filePaths', JSON.stringify(filePathsText));
+        }
+        const res = await fetch('/api/runs', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        result = await res.json();
+      } else {
+        result = await api('/api/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode, configPath, filePaths: filePathsText }),
+        });
+      }
 
       navigate(`/runs/${result.id}`);
     } catch (err) {
@@ -177,6 +229,41 @@ async function renderNewRun() {
       btn.disabled = false;
     }
   });
+}
+
+function addFiles(fileList) {
+  for (const f of fileList) {
+    if (!uploadedFiles.some(u => u.name === f.name && u.size === f.size)) {
+      uploadedFiles.push(f);
+    }
+  }
+  renderFilePreview();
+}
+
+function renderFilePreview() {
+  const container = $('#file-preview');
+  if (!container) return;
+  if (uploadedFiles.length === 0) {
+    container.innerHTML = '';
+    return;
+  }
+  container.innerHTML = uploadedFiles.map((f, i) =>
+    `<div>${escapeHtml(f.name)} (${formatSize(f.size)}) <span class="remove-file" data-idx="${i}">&times;</span></div>`
+  ).join('');
+
+  container.querySelectorAll('.remove-file').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      uploadedFiles.splice(parseInt(el.dataset.idx), 1);
+      renderFilePreview();
+    });
+  });
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
 // --- Run Detail ---
@@ -202,7 +289,6 @@ async function renderRunDetail(runId) {
 
     // Determine available tabs from files
     const csvFiles = files.filter(f => f.endsWith('.csv'));
-    const hasSummary = !!summary.recordCount;
     const hasAnomalies = csvFiles.includes('anomalies.csv');
     const hasDuplicates = csvFiles.includes('duplicates.csv');
     const hasQuarantine = csvFiles.includes('quarantine.csv');
@@ -214,7 +300,11 @@ async function renderRunDetail(runId) {
         <h2 style="font-size:18px">
           Run: ${run.mode} ${statusBadge}
         </h2>
-        <a href="/" class="btn">ダッシュボードに戻る</a>
+        <div class="btn-group">
+          <button class="btn" id="btn-rerun" title="同じ設定で再実行">再実行</button>
+          <button class="btn btn-danger" id="btn-delete" title="この Run を削除">削除</button>
+          <a href="/" class="btn">ダッシュボードに戻る</a>
+        </div>
       </div>
     `;
 
@@ -254,9 +344,10 @@ async function renderRunDetail(runId) {
 
     // Tabs
     const tabs = [];
+    if (hasNormalized) tabs.push({ id: 'compare', label: 'Before / After 比較', file: 'normalized.csv', special: 'compare' });
     if (hasNormalized) tabs.push({ id: 'normalized', label: '正規化データ', file: 'normalized.csv' });
     if (hasAnomalies) tabs.push({ id: 'anomalies', label: '異常値', file: 'anomalies.csv' });
-    if (hasDuplicates) tabs.push({ id: 'duplicates', label: '重複候補', file: 'duplicates.csv' });
+    if (hasDuplicates) tabs.push({ id: 'duplicates', label: '重複候補', file: 'duplicates.csv', special: 'dup-groups' });
     if (hasQuarantine) tabs.push({ id: 'quarantine', label: 'Quarantine', file: 'quarantine.csv' });
     if (hasClassified) tabs.push({ id: 'classified', label: '分類結果', file: 'classified.csv' });
 
@@ -288,6 +379,28 @@ async function renderRunDetail(runId) {
 
     app.innerHTML = html;
 
+    // Delete button
+    document.getElementById('btn-delete').addEventListener('click', async () => {
+      if (!confirm('この Run を削除しますか？')) return;
+      try {
+        await api(`/api/runs/${runId}`, { method: 'DELETE' });
+        navigate('/');
+      } catch (err) {
+        alert('削除に失敗しました: ' + err.message);
+      }
+    });
+
+    // Rerun button
+    document.getElementById('btn-rerun').addEventListener('click', async () => {
+      if (!confirm('同じ設定で再実行しますか？')) return;
+      try {
+        const result = await api(`/api/runs/${runId}/rerun`, { method: 'POST' });
+        navigate(`/runs/${result.id}`);
+      } catch (err) {
+        alert('再実行に失敗しました: ' + err.message);
+      }
+    });
+
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -301,12 +414,11 @@ async function renderRunDetail(runId) {
 
     // Load first tab data
     if (tabs.length > 0) {
-      loadTabData(runId, tabs[0]);
-      // Lazy load others on click
+      loadTabContent(runId, tabs[0]);
       document.querySelectorAll('.tab').forEach(tabEl => {
         tabEl.addEventListener('click', () => {
           const tabDef = tabs.find(t => t.id === tabEl.dataset.tab);
-          if (tabDef) loadTabData(runId, tabDef);
+          if (tabDef) loadTabContent(runId, tabDef);
         });
       });
     }
@@ -316,16 +428,27 @@ async function renderRunDetail(runId) {
   }
 }
 
-// --- Data table loading ---
+// --- Tab content loading ---
 
 const loadedTabs = new Set();
+
+async function loadTabContent(runId, tabDef) {
+  if (loadedTabs.has(tabDef.id)) return;
+
+  if (tabDef.special === 'compare') {
+    await loadCompareView(runId, tabDef);
+  } else if (tabDef.special === 'dup-groups') {
+    await loadDuplicateGroups(runId, tabDef);
+  } else {
+    await loadTabData(runId, tabDef, 0);
+  }
+}
 
 async function loadTabData(runId, tabDef, offset = 0) {
   const container = document.getElementById('tab-' + tabDef.id);
   if (!container) return;
 
   const limit = 100;
-  const isFirstLoad = !loadedTabs.has(tabDef.id);
 
   try {
     const data = await api(`/api/runs/${runId}/data/${tabDef.file}?offset=${offset}&limit=${limit}`);
@@ -337,21 +460,7 @@ async function loadTabData(runId, tabDef, offset = 0) {
     }
 
     let html = `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${data.totalCount.toLocaleString()} 件中 ${offset + 1}-${Math.min(offset + limit, data.totalCount)} 件を表示</p>`;
-    html += '<div class="table-wrap" style="max-height:500px;overflow:auto">';
-    html += '<table><thead><tr>';
-    for (const col of data.columns) {
-      html += `<th>${escapeHtml(col)}</th>`;
-    }
-    html += '</tr></thead><tbody>';
-    for (const row of data.rows) {
-      html += '<tr>';
-      for (const col of data.columns) {
-        const val = row[col] || '';
-        html += `<td title="${escapeHtml(val)}">${escapeHtml(truncate(val, 60))}</td>`;
-      }
-      html += '</tr>';
-    }
-    html += '</tbody></table></div>';
+    html += renderDataTable(data.columns, data.rows);
 
     // Pagination
     if (data.totalCount > limit) {
@@ -374,15 +483,156 @@ async function loadTabData(runId, tabDef, offset = 0) {
 
 // Global function for pagination onclick
 window.loadTabDataNav = async function(runId, tabId, file, offset) {
+  loadedTabs.delete(tabId);
   const tabDef = { id: tabId, file };
   await loadTabData(runId, tabDef, offset);
 };
+
+// --- Before/After comparison view ---
+
+async function loadCompareView(runId, tabDef) {
+  const container = document.getElementById('tab-' + tabDef.id);
+  if (!container) return;
+
+  try {
+    const [sourceData, normalizedData] = await Promise.all([
+      api(`/api/runs/${runId}/source-data?offset=0&limit=50`).catch(() => null),
+      api(`/api/runs/${runId}/data/normalized.csv?offset=0&limit=50`),
+    ]);
+
+    loadedTabs.add(tabDef.id);
+
+    if (!sourceData) {
+      container.innerHTML = '<p class="empty">ソースファイルが見つかりません（CSV ファイルのみ対応）</p>';
+      return;
+    }
+
+    let html = `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">元データと正規化後データの並列比較（先頭50件）</p>`;
+    html += '<div class="preview-grid">';
+
+    // Before
+    html += '<div>';
+    html += '<h3 style="margin-bottom:8px">Before（元データ）</h3>';
+    html += renderDataTable(sourceData.columns, sourceData.rows);
+    html += '</div>';
+
+    // After
+    html += '<div>';
+    html += '<h3 style="margin-bottom:8px">After（正規化後）</h3>';
+    html += renderDataTable(normalizedData.columns, normalizedData.rows, sourceData.rows);
+    html += '</div>';
+
+    html += '</div>';
+    container.innerHTML = html;
+  } catch (err) {
+    container.innerHTML = `<p class="empty">比較データの読み込みに失敗しました: ${err.message}</p>`;
+  }
+}
+
+// --- Duplicate group accordion view ---
+
+async function loadDuplicateGroups(runId, tabDef) {
+  const container = document.getElementById('tab-' + tabDef.id);
+  if (!container) return;
+
+  try {
+    const data = await api(`/api/runs/${runId}/duplicates`);
+    loadedTabs.add(tabDef.id);
+
+    if (data.totalGroups === 0) {
+      container.innerHTML = '<p class="empty">重複グループはありません</p>';
+      return;
+    }
+
+    const matchTypeLabels = {
+      phone: '電話番号一致',
+      email: 'メール一致',
+      name_company: '氏名+会社名',
+      name_address: '氏名+住所',
+    };
+
+    let html = `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${data.totalGroups} グループの重複候補</p>`;
+
+    for (const group of data.groups) {
+      const typeLabel = matchTypeLabels[group.matchType] || group.matchType;
+      html += `
+        <div class="dup-group">
+          <div class="dup-group-header" onclick="this.parentElement.classList.toggle('open')">
+            <span class="arrow">&#9654;</span>
+            <span class="badge badge-info">${typeLabel}</span>
+            <span>グループ #${escapeHtml(group.groupId)} — ${group.count} 件</span>
+            ${group.matchKey ? `<span style="color:var(--text-secondary);font-size:12px">キー: ${escapeHtml(truncate(group.matchKey, 40))}</span>` : ''}
+          </div>
+          <div class="dup-group-body">
+            ${renderDataTable(Object.keys(group.records[0] || {}), group.records)}
+          </div>
+        </div>
+      `;
+    }
+
+    container.innerHTML = html;
+  } catch (err) {
+    // Fallback to flat table view
+    loadedTabs.delete(tabDef.id);
+    tabDef.special = null;
+    await loadTabData(runId, tabDef, 0);
+  }
+}
+
+// --- Shared table renderer ---
+
+function renderDataTable(columns, rows, sourceRows) {
+  let html = '<div class="table-wrap" style="max-height:500px;overflow:auto">';
+  html += '<table><thead><tr>';
+  for (const col of columns) {
+    html += `<th>${escapeHtml(col)}</th>`;
+  }
+  html += '</tr></thead><tbody>';
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    html += '<tr>';
+    for (const col of columns) {
+      const val = row[col] || '';
+      let cls = '';
+      if (sourceRows && sourceRows[i]) {
+        const origVal = sourceRows[i][col];
+        if (origVal !== undefined && origVal !== val && val !== '') {
+          cls = ' class="diff-changed"';
+        }
+      }
+      html += `<td${cls} title="${escapeHtml(val)}">${escapeHtml(truncate(val, 60))}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+// --- SSE Progress ---
+
+function connectProgress(runId, onProgress, onDone) {
+  const evtSource = new EventSource(`/api/runs/${runId}/progress`);
+  evtSource.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.step === 'done') {
+      evtSource.close();
+      if (onDone) onDone(data.detail);
+    } else {
+      if (onProgress) onProgress(data);
+    }
+  };
+  evtSource.onerror = () => {
+    evtSource.close();
+    if (onDone) onDone('error');
+  };
+  return evtSource;
+}
 
 // --- Helpers ---
 
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 function truncate(str, maxLen) {

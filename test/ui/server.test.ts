@@ -115,4 +115,72 @@ describe('UI Server API', () => {
     const res = await fetch(`${baseUrl}/api/runs/nonexistent`);
     expect(res.status).toBe(404);
   });
+
+  it('GET /api/runs/:id/source-data returns original input data', async () => {
+    const runsRes = await fetch(`${baseUrl}/api/runs`);
+    const runs = await runsRes.json();
+
+    const res = await fetch(`${baseUrl}/api/runs/${runs[0].id}/source-data?offset=0&limit=5`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.columns).toBeDefined();
+    expect(data.rows.length).toBeLessThanOrEqual(5);
+    expect(data.totalCount).toBeGreaterThan(0);
+  });
+
+  it('GET /api/runs/:id/duplicates returns grouped duplicates', async () => {
+    const runsRes = await fetch(`${baseUrl}/api/runs`);
+    const runs = await runsRes.json();
+
+    const res = await fetch(`${baseUrl}/api/runs/${runs[0].id}/duplicates`);
+    // May be 200 or 404 depending on whether duplicates.csv exists
+    if (res.status === 200) {
+      const data = await res.json();
+      expect(data.totalGroups).toBeDefined();
+      expect(Array.isArray(data.groups)).toBe(true);
+    } else {
+      expect(res.status).toBe(404);
+    }
+  });
+
+  it('POST /api/runs/:id/rerun creates a new run from existing', async () => {
+    const runsRes = await fetch(`${baseUrl}/api/runs`);
+    const runs = await runsRes.json();
+    const originalId = runs[0].id;
+
+    const res = await fetch(`${baseUrl}/api/runs/${originalId}/rerun`, { method: 'POST' });
+    expect(res.status).toBe(200);
+    const newRun = await res.json();
+    expect(newRun.id).toBeTruthy();
+    expect(newRun.id).not.toBe(originalId);
+    expect(newRun.status).toBe('completed');
+  });
+
+  it('DELETE /api/runs/:id deletes a run', async () => {
+    // Create a throwaway run to delete
+    const createRes = await fetch(`${baseUrl}/api/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'profile',
+        filePaths: [APO_LIST],
+        configPath: CONFIG_PATH,
+      }),
+    });
+    const created = await createRes.json();
+
+    const delRes = await fetch(`${baseUrl}/api/runs/${created.id}`, { method: 'DELETE' });
+    expect(delRes.status).toBe(200);
+
+    const getRes = await fetch(`${baseUrl}/api/runs/${created.id}`);
+    expect(getRes.status).toBe(404);
+  });
+
+  it('GET /api/runs/:id/progress returns SSE stream', async () => {
+    const res = await fetch(`${baseUrl}/api/runs/nonexistent/progress`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    const text = await res.text();
+    expect(text).toContain('data:');
+  });
 });

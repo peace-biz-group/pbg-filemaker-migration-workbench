@@ -3,7 +3,8 @@
  * Manages run directories and metadata.
  */
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
 import { join, resolve } from 'node:path';
 import { profileFile } from './profiler.js';
 import { normalizeFile, normalizeFiles } from './normalizer.js';
@@ -80,14 +81,47 @@ function saveMeta(meta: RunMeta): void {
   writeFileSync(join(meta.outputDir, 'run-meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
 }
 
+// --- Progress tracking ---
+
+export interface ProgressEvent {
+  step: string;
+  detail: string;
+  percent: number;
+}
+
+const activeEmitters = new Map<string, EventEmitter>();
+
+export function getRunEmitter(runId: string): EventEmitter | undefined {
+  return activeEmitters.get(runId);
+}
+
+function emitProgress(runId: string, step: string, detail: string, percent: number): void {
+  const emitter = activeEmitters.get(runId);
+  if (emitter) {
+    emitter.emit('progress', { step, detail, percent } satisfies ProgressEvent);
+  }
+}
+
+// --- Delete run ---
+
+export function deleteRun(outputDir: string, runId: string): boolean {
+  const runDir = join(getRunsBaseDir(outputDir), runId);
+  if (!existsSync(runDir)) return false;
+  rmSync(runDir, { recursive: true, force: true });
+  return true;
+}
+
 /**
  * Execute a pipeline run. Returns the run metadata.
+ * If async mode is requested, returns immediately with 'running' status
+ * and emits progress events via EventEmitter.
  */
 export async function executeRun(
   mode: RunMode,
   inputFiles: string[],
   config: WorkbenchConfig,
   configPath?: string,
+  options?: { async?: boolean },
 ): Promise<RunMeta> {
   const runId = generateRunId();
   const runDir = join(getRunsBaseDir(config.outputDir), runId);
@@ -104,58 +138,76 @@ export async function executeRun(
   };
   saveMeta(meta);
 
-  // Override outputDir to run-specific dir
-  const runConfig = { ...config, outputDir: runDir };
+  const doExecute = async () => {
+    const runConfig = { ...config, outputDir: runDir };
+    const emitter = new EventEmitter();
+    emitter.on('error', () => {}); // prevent unhandled 'error' event throws
+    activeEmitters.set(runId, emitter);
 
-  try {
-    // Validate input files exist
-    for (const f of inputFiles) {
-      if (!existsSync(f)) {
-        throw new Error(`Input file not found: ${f}`);
+    try {
+      for (const f of inputFiles) {
+        if (!existsSync(f)) {
+          throw new Error(`Input file not found: ${f}`);
+        }
       }
-    }
 
-    switch (mode) {
-      case 'profile':
-        await runProfile(inputFiles[0], runConfig, meta);
-        break;
-      case 'normalize':
-        await runNormalize(inputFiles, runConfig, meta);
-        break;
-      case 'detect-duplicates':
-        await runDetectDuplicates(inputFiles[0], runConfig, meta);
-        break;
-      case 'classify':
-        await runClassify(inputFiles[0], runConfig, meta);
-        break;
-      case 'run-all':
-        await runAll(inputFiles[0], runConfig, meta);
-        break;
-      case 'run-batch':
-        await runBatch(inputFiles, runConfig, meta);
-        break;
+      switch (mode) {
+        case 'profile':
+          await runProfile(inputFiles[0], runConfig, meta, runId);
+          break;
+        case 'normalize':
+          await runNormalize(inputFiles, runConfig, meta, runId);
+          break;
+        case 'detect-duplicates':
+          await runDetectDuplicates(inputFiles[0], runConfig, meta, runId);
+          break;
+        case 'classify':
+          await runClassify(inputFiles[0], runConfig, meta, runId);
+          break;
+        case 'run-all':
+          await runAll(inputFiles[0], runConfig, meta, runId);
+          break;
+        case 'run-batch':
+          await runBatch(inputFiles, runConfig, meta, runId);
+          break;
+      }
+      meta.status = 'completed';
+      meta.completedAt = new Date().toISOString();
+      saveMeta(meta);
+      emitter.emit('complete', meta);
+    } catch (err) {
+      meta.status = 'failed';
+      meta.completedAt = new Date().toISOString();
+      meta.error = err instanceof Error ? err.message : String(err);
+      saveMeta(meta);
+      emitter.emit('error', meta);
+    } finally {
+      setTimeout(() => activeEmitters.delete(runId), 5000);
     }
-    meta.status = 'completed';
-    meta.completedAt = new Date().toISOString();
-  } catch (err) {
-    meta.status = 'failed';
-    meta.completedAt = new Date().toISOString();
-    meta.error = err instanceof Error ? err.message : String(err);
+  };
+
+  if (options?.async) {
+    doExecute();
+    return meta;
   }
 
-  saveMeta(meta);
+  await doExecute();
   return meta;
 }
 
-async function runProfile(file: string, config: WorkbenchConfig, meta: RunMeta): Promise<void> {
+async function runProfile(file: string, config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+  emitProgress(runId, 'profile', 'プロファイル実行中...', 10);
   const profile = await profileFile(file, config);
+  emitProgress(runId, 'profile', '異常値書き出し中...', 60);
   await writeAnomalies(profile, config);
   meta.summary = buildSummary(meta, profile);
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profile);
+  emitProgress(runId, 'profile', '完了', 100);
 }
 
-async function runNormalize(files: string[], config: WorkbenchConfig, meta: RunMeta): Promise<void> {
+async function runNormalize(files: string[], config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+  emitProgress(runId, 'normalize', '正規化実行中...', 10);
   let normResult;
   if (files.length === 1) {
     normResult = await normalizeFile(files[0], config);
@@ -169,27 +221,36 @@ async function runNormalize(files: string[], config: WorkbenchConfig, meta: RunM
   meta.summary.normalizedCount = normResult.normalizedCount;
   meta.summary.quarantineCount = normResult.quarantineCount;
   writeSummaryJson(config.outputDir, meta.summary);
+  emitProgress(runId, 'normalize', '完了', 100);
 }
 
-async function runDetectDuplicates(file: string, config: WorkbenchConfig, meta: RunMeta): Promise<void> {
+async function runDetectDuplicates(file: string, config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+  emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 10);
   const result = await detectDuplicates(file, config);
   meta.summary = buildSummary(meta);
   meta.summary.duplicateGroupCount = result.groups.length;
   writeSummaryJson(config.outputDir, meta.summary);
+  emitProgress(runId, 'detect-duplicates', '完了', 100);
 }
 
-async function runClassify(file: string, config: WorkbenchConfig, meta: RunMeta): Promise<void> {
+async function runClassify(file: string, config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+  emitProgress(runId, 'classify', '分類実行中...', 10);
   const result = await classifyFile(file, config);
   meta.summary = buildSummary(meta);
   meta.summary.classificationBreakdown = result.breakdown;
   writeSummaryJson(config.outputDir, meta.summary);
+  emitProgress(runId, 'classify', '完了', 100);
 }
 
-async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta): Promise<void> {
+async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+  emitProgress(runId, 'profile', 'プロファイル実行中...', 5);
   const profile = await profileFile(file, config);
   await writeAnomalies(profile, config);
+  emitProgress(runId, 'normalize', '正規化実行中...', 25);
   const normResult = await normalizeFile(file, config);
+  emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 50);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
+  emitProgress(runId, 'classify', '分類実行中...', 75);
   const classResult = await classifyFile(normResult.normalizedPath, config);
 
   meta.summary = {
@@ -204,15 +265,17 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta): Pro
   };
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profile);
+  emitProgress(runId, 'complete', '完了', 100);
 }
 
-async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta): Promise<void> {
+async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
   // Profile each
   const profiles: ProfileResult[] = [];
   let totalRecords = 0;
   let totalColumns = 0;
-  for (const f of files) {
-    const p = await profileFile(f, config);
+  for (let i = 0; i < files.length; i++) {
+    emitProgress(runId, 'profile', `プロファイル実行中 (${i + 1}/${files.length})...`, Math.round((i / files.length) * 20));
+    const p = await profileFile(files[i], config);
     profiles.push(p);
     totalRecords += p.recordCount;
     totalColumns = Math.max(totalColumns, p.columnCount);
@@ -232,11 +295,14 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta)
     await writeCsv(join(config.outputDir, 'anomalies.csv'), allAnomalies);
   }
 
+  emitProgress(runId, 'normalize', '正規化実行中...', 30);
   const normResult = await normalizeFiles(
     files.map((f) => ({ path: f, label: f })),
     config,
   );
+  emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 55);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
+  emitProgress(runId, 'classify', '分類実行中...', 80);
   const classResult = await classifyFile(normResult.normalizedPath, config);
 
   meta.summary = {
@@ -251,6 +317,7 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta)
   };
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profiles[0]);
+  emitProgress(runId, 'complete', '完了', 100);
 }
 
 async function writeAnomalies(profile: ProfileResult, config: WorkbenchConfig): Promise<void> {
