@@ -1,0 +1,50 @@
+{
+  "name": "sample-project",
+  "columnMappings": {
+    "apo_list_*.csv": {
+      "顧客名": "customer_name",
+      "電話番号": "phone",
+      "メールアドレス": "email",
+      "会社名": "company_name",
+      "住所": "address",
+      "担当者名": "name",
+      "商材": "product",
+      "契約日": "contract_date",
+      "金額": "amount",
+      "対応日": "activity_date",
+      "対応種別": "activity_type",
+      "メモ": "note"
+    }
+  },
+  "canonicalFields": {
+    "phone": ["phone", "tel", "電話番号", "TEL", "携帯番号"],
+    "email": ["email", "mail", "メールアドレス", "Eメール"],
+    "name": ["name", "氏名", "名前", "担当者名", "顧客名"],
+    "companyName": ["company", "company_name", "会社名", "法人名"],
+    "storeName": ["store", "store_name", "店舗名"],
+    "address": ["address", "住所", "所在地"]
+  },
+  "normalization": {
+    "trimWhitespace": true,
+    "normalizeFullWidthToHalfWidth": true,
+    "normalizePhone": true,
+    "lowercaseEmail": true,
+    "normalizeDates": true,
+    "cleanWhitespaceAndNewlines": true
+  },
+  "duplicateDetection": {
+    "enablePhoneMatch": true,
+    "enableEmailMatch": true,
+    "enableNameCompanyMatch": true,
+    "enableNameAddressMatch": true
+  },
+  "classification": {
+    "customerFields": ["company_name", "customer_name", "phone", "email", "address", "会社名", "顧客名", "電話番号", "メールアドレス", "住所"],
+    "dealFields": ["deal_name", "product", "service", "contract_date", "商材", "契約日"],
+    "transactionFields": ["amount", "payment_date", "invoice_number", "金額", "入金日", "請求番号"],
+    "activityFields": ["activity_date", "activity_type", "note", "follow_up", "対応日", "対応種別", "メモ", "フォローアップ"],
+    "minFieldsForClassification": 2
+  },
+  "chunkSize": 5000,
+  "outputDir": "./output"
+}

@@ -1,0 +1,50 @@
+{
+  "name": "pbg-filemaker-data-workbench",
+  "version": "0.1.0",
+  "description": "FileMaker 実データ整備ワークベンチ — CSV/XLSX の調査・正規化・重複候補抽出・分類・レポート出力",
+  "type": "module",
+  "main": "dist/cli/index.js",
+  "bin": {
+    "fm-workbench": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli/index.ts",
+    "lint": "eslint src/ test/ --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "profile": "tsx src/cli/index.ts profile",
+    "normalize": "tsx src/cli/index.ts normalize",
+    "detect-duplicates": "tsx src/cli/index.ts detect-duplicates",
+    "classify": "tsx src/cli/index.ts classify",
+    "run-all": "tsx src/cli/index.ts run-all"
+  },
+  "keywords": [
+    "filemaker",
+    "data-migration",
+    "csv",
+    "workbench"
+  ],
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "csv-parse": "^6.2.1",
+    "csv-stringify": "^6.7.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "eslint": "^10.1.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.2"
+  }
+}
