@@ -10,6 +10,9 @@ const normalizationRulesSchema = z.object({
   lowercaseEmail: z.boolean().default(true),
   normalizeDates: z.boolean().default(true),
   cleanWhitespaceAndNewlines: z.boolean().default(true),
+  normalizeCompanyName: z.boolean().default(true),
+  normalizeAddress: z.boolean().default(true),
+  normalizeStoreName: z.boolean().default(true),
 });
 
 const duplicateDetectionSchema = z.object({
@@ -17,6 +20,8 @@ const duplicateDetectionSchema = z.object({
   enableEmailMatch: z.boolean().default(true),
   enableNameCompanyMatch: z.boolean().default(true),
   enableNameAddressMatch: z.boolean().default(true),
+  /** Use normalized keys for company/address matching (absorbs variants). */
+  useNormalizedKeys: z.boolean().default(true),
 });
 
 const classificationRulesSchema = z.object({
@@ -34,11 +39,33 @@ const classificationRulesSchema = z.object({
   ]),
   /** Minimum number of non-empty canonical fields to avoid quarantine. */
   minFieldsForClassification: z.number().default(2),
+  /**
+   * Priority order for classification when scores tie.
+   * Types listed first win over types listed later.
+   * 'transaction' is deprioritized by default — in FileMaker data,
+   * amount/invoice fields often co-exist with customer or deal fields,
+   * and treating them as standalone transaction records is premature.
+   */
+  priorityOrder: z.array(z.string()).default([
+    'customer', 'deal', 'activity', 'transaction',
+  ]),
+});
+
+/** Input file entry for multi-file runs. */
+const inputFileSchema = z.object({
+  path: z.string(),
+  /** Optional: override which column mapping pattern to use. */
+  mappingPattern: z.string().optional(),
+  /** Optional: label for this source in reports. */
+  label: z.string().optional(),
 });
 
 export const workbenchConfigSchema = z.object({
   /** Display name for this configuration. */
   name: z.string().default('default'),
+
+  /** Input files for batch/multi-file runs. */
+  inputs: z.array(inputFileSchema).default([]),
 
   /** Column mappings per source file pattern. */
   columnMappings: z.record(z.string(), columnMappingSchema).default({}),
@@ -67,12 +94,16 @@ export const workbenchConfigSchema = z.object({
     lowercaseEmail: true,
     normalizeDates: true,
     cleanWhitespaceAndNewlines: true,
+    normalizeCompanyName: true,
+    normalizeAddress: true,
+    normalizeStoreName: true,
   }),
   duplicateDetection: duplicateDetectionSchema.default({
     enablePhoneMatch: true,
     enableEmailMatch: true,
     enableNameCompanyMatch: true,
     enableNameAddressMatch: true,
+    useNormalizedKeys: true,
   }),
   classification: classificationRulesSchema.default({
     customerFields: ['company_name', 'customer_name', 'phone', 'email', 'address'],
@@ -80,6 +111,7 @@ export const workbenchConfigSchema = z.object({
     transactionFields: ['amount', 'payment_date', 'invoice_number'],
     activityFields: ['activity_date', 'activity_type', 'note', 'follow_up'],
     minFieldsForClassification: 2,
+    priorityOrder: ['customer', 'deal', 'activity', 'transaction'],
   }),
 
   /** Processing chunk size (records per chunk). */
@@ -92,3 +124,4 @@ export const workbenchConfigSchema = z.object({
 export type WorkbenchConfig = z.infer<typeof workbenchConfigSchema>;
 export type NormalizationRules = z.infer<typeof normalizationRulesSchema>;
 export type ClassificationRules = z.infer<typeof classificationRulesSchema>;
+export type InputFile = z.infer<typeof inputFileSchema>;

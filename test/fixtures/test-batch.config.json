@@ -1,9 +1,5 @@
 {
-  "name": "sample-project",
-  "inputs": [
-    { "path": "./data/apo_list_2024.csv", "label": "アポリスト2024" },
-    { "path": "./data/product_a_customers.csv", "label": "商材A顧客管理" }
-  ],
+  "name": "test-batch",
   "columnMappings": {
     "apo_list_*.csv": {
       "顧客名": "customer_name",
@@ -41,24 +37,6 @@
     "storeName": ["store_name", "store", "店舗名"],
     "address": ["address", "住所", "所在地"]
   },
-  "normalization": {
-    "trimWhitespace": true,
-    "normalizeFullWidthToHalfWidth": true,
-    "normalizePhone": true,
-    "lowercaseEmail": true,
-    "normalizeDates": true,
-    "cleanWhitespaceAndNewlines": true,
-    "normalizeCompanyName": true,
-    "normalizeAddress": true,
-    "normalizeStoreName": true
-  },
-  "duplicateDetection": {
-    "enablePhoneMatch": true,
-    "enableEmailMatch": true,
-    "enableNameCompanyMatch": true,
-    "enableNameAddressMatch": true,
-    "useNormalizedKeys": true
-  },
   "classification": {
     "customerFields": ["company_name", "customer_name", "phone", "email", "address", "store_name"],
     "dealFields": ["product", "service", "contract_date"],
@@ -67,6 +45,6 @@
     "minFieldsForClassification": 2,
     "priorityOrder": ["customer", "deal", "activity", "transaction"]
   },
-  "chunkSize": 5000,
-  "outputDir": "./output"
+  "chunkSize": 100,
+  "outputDir": "./test/output-batch"
 }

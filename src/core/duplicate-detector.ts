@@ -8,6 +8,7 @@ import type { RawRecord, DuplicateGroup } from '../types/index.js';
 import type { WorkbenchConfig } from '../config/schema.js';
 import { readFileInChunks } from '../io/file-reader.js';
 import { writeCsv } from '../io/csv-writer.js';
+import { companyMatchKey, addressMatchKey, storeMatchKey } from '../normalizers/company.js';
 import { join } from 'node:path';
 import { ensureOutputDir } from '../io/report-writer.js';
 
@@ -15,6 +16,7 @@ type MatchType = DuplicateGroup['matchType'];
 
 interface IndexEntry {
   row: number;
+  sourceFile: string;
   values: Record<string, string>;
 }
 
@@ -38,6 +40,7 @@ export async function detectDuplicates(
   config: WorkbenchConfig,
 ): Promise<DuplicateResult> {
   ensureOutputDir(config.outputDir);
+  const useNormalizedKeys = config.duplicateDetection.useNormalizedKeys;
 
   // Indices: key → list of row entries
   const phoneIndex = new Map<string, IndexEntry[]>();
@@ -50,7 +53,8 @@ export async function detectDuplicates(
   await readFileInChunks(filePath, config.chunkSize, async (chunk, _idx) => {
     for (const record of chunk) {
       rowCounter++;
-      const entry: IndexEntry = { row: rowCounter, values: {} };
+      const sourceFile = record['_source_file'] ?? '';
+      const entry: IndexEntry = { row: rowCounter, sourceFile, values: {} };
 
       const phone = resolveField(record, config.canonicalFields.phone);
       const email = resolveField(record, config.canonicalFields.email);
@@ -59,7 +63,7 @@ export async function detectDuplicates(
       const store = resolveField(record, config.canonicalFields.storeName);
       const address = resolveField(record, config.canonicalFields.address);
 
-      entry.values = { phone, email, name, company, store, address };
+      entry.values = { phone, email, name, company, store, address, _source_file: sourceFile };
 
       // Phone index
       if (config.duplicateDetection.enablePhoneMatch && phone) {
@@ -79,7 +83,10 @@ export async function detectDuplicates(
       if (config.duplicateDetection.enableNameCompanyMatch && name) {
         const org = company || store;
         if (org) {
-          const key = `${name}|${org}`.toLowerCase();
+          const orgKey = useNormalizedKeys
+            ? (company ? companyMatchKey(company) : storeMatchKey(store))
+            : (company || store).toLowerCase();
+          const key = `${name.toLowerCase()}|${orgKey}`;
           if (!nameCompanyIndex.has(key)) nameCompanyIndex.set(key, []);
           nameCompanyIndex.get(key)!.push(entry);
         }
@@ -87,7 +94,8 @@ export async function detectDuplicates(
 
       // Name + Address index
       if (config.duplicateDetection.enableNameAddressMatch && name && address) {
-        const key = `${name}|${address}`.toLowerCase();
+        const addrKey = useNormalizedKeys ? addressMatchKey(address) : address.toLowerCase();
+        const key = `${name.toLowerCase()}|${addrKey}`;
         if (!nameAddressIndex.has(key)) nameAddressIndex.set(key, []);
         nameAddressIndex.get(key)!.push(entry);
       }

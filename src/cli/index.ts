@@ -6,18 +6,20 @@ import { normalizeCommand } from './commands/normalize.js';
 import { detectDuplicatesCommand } from './commands/detect-duplicates.js';
 import { classifyCommand } from './commands/classify.js';
 import { runAllCommand } from './commands/run-all.js';
+import { runBatchCommand } from './commands/run-batch.js';
 
 const program = new Command();
 
 program
   .name('fm-workbench')
   .description('FileMaker Data Workbench — CSV/XLSX の調査・正規化・重複候補抽出・分類・レポート出力')
-  .version('0.1.0');
+  .version('0.2.0');
 
 program.addCommand(profileCommand);
 program.addCommand(normalizeCommand);
 program.addCommand(detectDuplicatesCommand);
 program.addCommand(classifyCommand);
 program.addCommand(runAllCommand);
+program.addCommand(runBatchCommand);
 
 program.parse();

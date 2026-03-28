@@ -1,6 +1,11 @@
 /**
  * Record classifier — assigns candidate types to each record.
  * Does NOT auto-confirm. Everything is a "candidate".
+ *
+ * Priority: customer > deal > activity > transaction (configurable).
+ * Transaction is deprioritized because FileMaker records typically mix
+ * customer + deal + amount fields in one row; treating amount alone as
+ * a standalone "transaction" record is premature at this stage.
  */
 
 import type { RawRecord, CandidateType } from '../types/index.js';
@@ -23,16 +28,25 @@ function countNonEmptyMatches(record: RawRecord, fieldPatterns: string[]): numbe
   return count;
 }
 
+const CANDIDATE_TYPES: CandidateType[] = ['customer', 'deal', 'transaction', 'activity'];
+
 function classifyRecord(
   record: RawRecord,
   rules: ClassificationRules,
 ): { type: CandidateType; confidence: 'high' | 'medium' | 'low'; reason: string } {
-  const scores: { type: CandidateType; score: number; total: number }[] = [
-    { type: 'customer', score: countNonEmptyMatches(record, rules.customerFields), total: rules.customerFields.length },
-    { type: 'deal', score: countNonEmptyMatches(record, rules.dealFields), total: rules.dealFields.length },
-    { type: 'transaction', score: countNonEmptyMatches(record, rules.transactionFields), total: rules.transactionFields.length },
-    { type: 'activity', score: countNonEmptyMatches(record, rules.activityFields), total: rules.activityFields.length },
-  ];
+  const fieldMap: Record<string, string[]> = {
+    customer: rules.customerFields,
+    deal: rules.dealFields,
+    transaction: rules.transactionFields,
+    activity: rules.activityFields,
+  };
+
+  const scores: { type: CandidateType; score: number; total: number; ratio: number }[] = [];
+  for (const type of CANDIDATE_TYPES) {
+    const fields = fieldMap[type];
+    const score = countNonEmptyMatches(record, fields);
+    scores.push({ type, score, total: fields.length, ratio: fields.length > 0 ? score / fields.length : 0 });
+  }
 
   // Filter to those meeting minimum threshold
   const viable = scores.filter((s) => s.score >= rules.minFieldsForClassification);
@@ -41,13 +55,25 @@ function classifyRecord(
     return { type: 'quarantine', confidence: 'low', reason: 'insufficient fields for classification' };
   }
 
-  // Pick highest ratio
-  viable.sort((a, b) => b.score / b.total - a.score / a.total);
-  const best = viable[0];
-  const ratio = best.score / best.total;
-  const confidence = ratio >= 0.6 ? 'high' : ratio >= 0.4 ? 'medium' : 'low';
+  // Sort by: absolute score descending (more matched fields = stronger signal),
+  // then by priority order for ties.
+  // Absolute score is preferred over ratio because in FileMaker data, customer/deal
+  // fields often co-exist with activity fields. A type matching 5/6 fields is
+  // stronger evidence than one matching 3/3, even though the ratio is lower.
+  const priorityOrder = rules.priorityOrder;
+  viable.sort((a, b) => {
+    const scoreDiff = b.score - a.score;
+    if (scoreDiff !== 0) return scoreDiff;
+    // Use priority order for ties
+    const aPri = priorityOrder.indexOf(a.type);
+    const bPri = priorityOrder.indexOf(b.type);
+    return (aPri === -1 ? 999 : aPri) - (bPri === -1 ? 999 : bPri);
+  });
 
-  // If multiple types have the same top score, confidence is lower
+  const best = viable[0];
+  const confidence = best.ratio >= 0.6 ? 'high' : best.ratio >= 0.4 ? 'medium' : 'low';
+
+  // If multiple types have the same top score, confidence is reduced
   const tiedCount = viable.filter((v) => v.score === best.score).length;
   const finalConfidence = tiedCount > 1 && confidence === 'high' ? 'medium' : confidence;
 

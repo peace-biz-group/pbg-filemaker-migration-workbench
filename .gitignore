@@ -1,6 +1,7 @@
 node_modules/
 dist/
 output/
+test/output-*/
 *.log
 .env
 .DS_Store

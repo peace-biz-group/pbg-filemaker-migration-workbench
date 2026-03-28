@@ -10,11 +10,12 @@ import {
   writeSummaryJson,
   writeSummaryMarkdown,
 } from '../../io/report-writer.js';
+import { findColumnMapping } from '../../core/column-mapper.js';
 import { join } from 'node:path';
 import type { ReportSummary } from '../../types/index.js';
 
 export const runAllCommand = new Command('run-all')
-  .description('Run full pipeline: profile → normalize → detect-duplicates → classify')
+  .description('Run full pipeline on a single file: profile → normalize → detect-duplicates → classify')
   .argument('<file>', 'Input CSV or XLSX file')
   .option('-c, --config <path>', 'Config file path')
   .option('-o, --output-dir <dir>', 'Output directory')
@@ -24,6 +25,13 @@ export const runAllCommand = new Command('run-all')
     ensureOutputDir(config.outputDir);
 
     console.log('=== FileMaker Data Workbench — Full Pipeline ===\n');
+
+    // Show column mapping info
+    const mapping = findColumnMapping(file, config);
+    if (mapping) {
+      const mappedCount = Object.keys(mapping).length;
+      console.log(`Column mapping applied: ${mappedCount} columns will be renamed\n`);
+    }
 
     // 1. Profile
     console.log('[1/4] Profiling...');

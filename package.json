@@ -1,6 +1,6 @@
 {
   "name": "pbg-filemaker-data-workbench",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "FileMaker 実データ整備ワークベンチ — CSV/XLSX の調査・正規化・重複候補抽出・分類・レポート出力",
   "type": "module",
   "main": "dist/cli/index.js",
@@ -18,7 +18,8 @@
     "normalize": "tsx src/cli/index.ts normalize",
     "detect-duplicates": "tsx src/cli/index.ts detect-duplicates",
     "classify": "tsx src/cli/index.ts classify",
-    "run-all": "tsx src/cli/index.ts run-all"
+    "run-all": "tsx src/cli/index.ts run-all",
+    "run-batch": "tsx src/cli/index.ts run-batch"
   },
   "keywords": [
     "filemaker",
