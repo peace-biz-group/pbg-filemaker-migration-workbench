@@ -5,15 +5,19 @@
 
 import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
-import { join, resolve } from 'node:path';
+import { join, resolve, basename } from 'node:path';
 import { profileFile } from './profiler.js';
 import { normalizeFile, normalizeFiles } from './normalizer.js';
+import type { NormalizeContext } from './normalizer.js';
 import { detectDuplicates } from './duplicate-detector.js';
 import { classifyFile } from './classifier.js';
 import { writeCsv } from '../io/csv-writer.js';
 import { writeSummaryJson, writeSummaryMarkdown } from '../io/report-writer.js';
+import { ingestFile } from '../io/file-reader.js';
+import { sourceBatchId, logicalSourceKey } from '../ingest/fingerprint.js';
+import { generateMappingSuggestions } from './column-mapper.js';
 import type { WorkbenchConfig } from '../config/schema.js';
-import type { ReportSummary, ProfileResult, CandidateType } from '../types/index.js';
+import type { ReportSummary, ProfileResult, CandidateType, IngestDiagnosis, RunDiff, RunDiffBySource } from '../types/index.js';
 
 export type RunMode = 'profile' | 'normalize' | 'detect-duplicates' | 'classify' | 'run-all' | 'run-batch';
 
@@ -28,6 +32,13 @@ export interface RunMeta {
   error?: string;
   outputDir: string;
   summary?: ReportSummary;
+  // new fields (optional for backward compat)
+  sourceBatchId?: string;
+  logicalSourceKey?: string;
+  sourceFileHashes?: Record<string, string>;
+  schemaFingerprints?: Record<string, string>;
+  ingestDiagnoses?: Record<string, IngestDiagnosis>;
+  previousRunId?: string;
 }
 
 function generateRunId(): string {
@@ -111,6 +122,42 @@ export function deleteRun(outputDir: string, runId: string): boolean {
   return true;
 }
 
+/** Resolve per-file ingest options: merge global config + per-file override. */
+function resolveFileIngestOptions(filePath: string, config: WorkbenchConfig): Record<string, unknown> {
+  const global = config.ingestOptions ?? {};
+  const fileEntry = config.inputs.find(i => resolve(i.path) === resolve(filePath));
+  const perFile = fileEntry?.ingestOptions ?? {};
+  return { ...global, ...perFile };
+}
+
+function buildRunDiff(prev: RunMeta, curr: RunMeta, sources: { sourceKey: string; filePath: string }[]): RunDiff {
+  const bySource: RunDiffBySource[] = sources.map(({ sourceKey, filePath }) => ({
+    sourceKey,
+    recordCountDelta: 0,
+    normalizedCountDelta: 0,
+    quarantineCountDelta: 0,
+    parseFailDelta: 0,
+    schemaChanged: (prev.schemaFingerprints?.[filePath] ?? '') !== (curr.schemaFingerprints?.[filePath] ?? ''),
+    schemaFingerprintPrev: prev.schemaFingerprints?.[filePath],
+    schemaFingerprintCurr: curr.schemaFingerprints?.[filePath],
+  }));
+
+  const prevS = prev.summary!;
+  const currS = curr.summary!;
+  return {
+    previousRunId: prev.id,
+    currentRunId: curr.id,
+    logicalSourceKey: curr.logicalSourceKey ?? '',
+    bySource,
+    totals: {
+      recordCountDelta: (currS.recordCount ?? 0) - (prevS.recordCount ?? 0),
+      normalizedCountDelta: (currS.normalizedCount ?? 0) - (prevS.normalizedCount ?? 0),
+      quarantineCountDelta: (currS.quarantineCount ?? 0) - (prevS.quarantineCount ?? 0),
+      parseFailDelta: (currS.parseFailCount ?? 0) - (prevS.parseFailCount ?? 0),
+    },
+  };
+}
+
 /**
  * Execute a pipeline run. Returns the run metadata.
  * If async mode is requested, returns immediately with 'running' status
@@ -151,12 +198,64 @@ export async function executeRun(
         }
       }
 
+      // Compute file hashes + ingest diagnoses
+      const sourceFileHashes: Record<string, string> = {};
+      const schemaFingerprints: Record<string, string> = {};
+      const ingestDiagnoses: Record<string, IngestDiagnosis> = {};
+
+      for (const f of inputFiles) {
+        const ir = await ingestFile(f, resolveFileIngestOptions(f, config), 1);
+        // consume one chunk to trigger diagnosis
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        for await (const _chunk of ir.records) { break; }
+        sourceFileHashes[f] = ir.sourceFileHash;
+        schemaFingerprints[f] = ir.schemaFingerprint;
+        ingestDiagnoses[f] = ir.diagnosis;
+
+        // Write mapping suggestions
+        const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
+        if (suggestions.suggestions.length > 0) {
+          writeFileSync(
+            join(runDir, 'mapping-suggestions.json'),
+            JSON.stringify(suggestions, null, 2),
+            'utf-8',
+          );
+        }
+      }
+
+      const batchId = sourceBatchId(Object.values(sourceFileHashes));
+      const srcKeys = inputFiles.map(f => {
+        const entry = config.inputs.find(i => resolve(i.path) === resolve(f));
+        return entry?.sourceKey ?? basename(f);
+      });
+      const lsk = logicalSourceKey(srcKeys);
+
+      // Find previous run for diff
+      const allRuns = listRuns(config.outputDir).filter(r => r.id !== runId && r.logicalSourceKey === lsk && r.status === 'completed');
+      const prevRunId = allRuns[0]?.id;
+
+      meta.sourceBatchId = batchId;
+      meta.logicalSourceKey = lsk;
+      meta.sourceFileHashes = sourceFileHashes;
+      meta.schemaFingerprints = schemaFingerprints;
+      meta.ingestDiagnoses = ingestDiagnoses;
+      meta.previousRunId = prevRunId;
+      saveMeta(meta);
+
+      // Build contexts
+      const contexts: NormalizeContext[] = inputFiles.map((f, i) => ({
+        sourceBatchId: batchId,
+        importRunId: runId,
+        sourceKey: srcKeys[i] ?? basename(f),
+        ingestOptions: resolveFileIngestOptions(f, config),
+      }));
+
       switch (mode) {
         case 'profile':
           await runProfile(inputFiles[0], runConfig, meta, runId);
           break;
         case 'normalize':
-          await runNormalize(inputFiles, runConfig, meta, runId);
+          await runNormalize(inputFiles, runConfig, meta, runId, contexts);
           break;
         case 'detect-duplicates':
           await runDetectDuplicates(inputFiles[0], runConfig, meta, runId);
@@ -165,15 +264,35 @@ export async function executeRun(
           await runClassify(inputFiles[0], runConfig, meta, runId);
           break;
         case 'run-all':
-          await runAll(inputFiles[0], runConfig, meta, runId);
+          await runAll(inputFiles[0], runConfig, meta, runId, contexts[0]);
           break;
         case 'run-batch':
-          await runBatch(inputFiles, runConfig, meta, runId);
+          await runBatch(inputFiles, runConfig, meta, runId, contexts);
           break;
       }
       meta.status = 'completed';
       meta.completedAt = new Date().toISOString();
       saveMeta(meta);
+
+      // Write ingest-diagnoses.json
+      writeFileSync(
+        join(meta.outputDir, 'ingest-diagnoses.json'),
+        JSON.stringify(ingestDiagnoses, null, 2),
+        'utf-8',
+      );
+
+      // Write run-diff.json if previousRunId exists
+      if (prevRunId) {
+        const prevMeta = getRun(config.outputDir, prevRunId);
+        if (prevMeta?.summary && meta.summary) {
+          const diff = buildRunDiff(prevMeta, meta, srcKeys.map((k, i) => ({
+            sourceKey: k,
+            filePath: inputFiles[i]!,
+          })));
+          writeFileSync(join(meta.outputDir, 'run-diff.json'), JSON.stringify(diff, null, 2), 'utf-8');
+        }
+      }
+
       emitter.emit('complete', meta);
     } catch (err) {
       meta.status = 'failed';
@@ -206,20 +325,22 @@ async function runProfile(file: string, config: WorkbenchConfig, meta: RunMeta, 
   emitProgress(runId, 'profile', '完了', 100);
 }
 
-async function runNormalize(files: string[], config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+async function runNormalize(files: string[], config: WorkbenchConfig, meta: RunMeta, runId: string, contexts: NormalizeContext[]): Promise<void> {
   emitProgress(runId, 'normalize', '正規化実行中...', 10);
   let normResult;
   if (files.length === 1) {
-    normResult = await normalizeFile(files[0], config);
+    normResult = await normalizeFile(files[0], config, contexts[0]);
   } else {
     normResult = await normalizeFiles(
       files.map((f) => ({ path: f, label: f })),
       config,
+      contexts,
     );
   }
   meta.summary = buildSummary(meta);
   meta.summary.normalizedCount = normResult.normalizedCount;
   meta.summary.quarantineCount = normResult.quarantineCount;
+  meta.summary.parseFailCount = normResult.parseFailCount;
   writeSummaryJson(config.outputDir, meta.summary);
   emitProgress(runId, 'normalize', '完了', 100);
 }
@@ -242,12 +363,12 @@ async function runClassify(file: string, config: WorkbenchConfig, meta: RunMeta,
   emitProgress(runId, 'classify', '完了', 100);
 }
 
-async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runId: string, context: NormalizeContext): Promise<void> {
   emitProgress(runId, 'profile', 'プロファイル実行中...', 5);
   const profile = await profileFile(file, config);
   await writeAnomalies(profile, config);
   emitProgress(runId, 'normalize', '正規化実行中...', 25);
-  const normResult = await normalizeFile(file, config);
+  const normResult = await normalizeFile(file, config, context);
   emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 50);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
   emitProgress(runId, 'classify', '分類実行中...', 75);
@@ -260,6 +381,7 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
     columnCount: profile.columnCount,
     normalizedCount: normResult.normalizedCount,
     quarantineCount: normResult.quarantineCount,
+    parseFailCount: normResult.parseFailCount,
     duplicateGroupCount: dupResult.groups.length,
     classificationBreakdown: classResult.breakdown,
   };
@@ -268,7 +390,7 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
   emitProgress(runId, 'complete', '完了', 100);
 }
 
-async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta, runId: string): Promise<void> {
+async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta, runId: string, contexts: NormalizeContext[]): Promise<void> {
   // Profile each
   const profiles: ProfileResult[] = [];
   let totalRecords = 0;
@@ -299,6 +421,7 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
   const normResult = await normalizeFiles(
     files.map((f) => ({ path: f, label: f })),
     config,
+    contexts,
   );
   emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 55);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
@@ -312,6 +435,7 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
     columnCount: totalColumns,
     normalizedCount: normResult.normalizedCount,
     quarantineCount: normResult.quarantineCount,
+    parseFailCount: normResult.parseFailCount,
     duplicateGroupCount: dupResult.groups.length,
     classificationBreakdown: classResult.breakdown,
   };
@@ -345,6 +469,7 @@ function buildSummary(meta: RunMeta, profile?: ProfileResult): ReportSummary {
     columnCount: profile?.columnCount ?? 0,
     normalizedCount: 0,
     quarantineCount: 0,
+    parseFailCount: 0,
     duplicateGroupCount: 0,
     classificationBreakdown: empty,
   };

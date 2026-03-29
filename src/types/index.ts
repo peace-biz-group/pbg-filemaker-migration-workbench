@@ -12,6 +12,7 @@ export interface ColumnProfile {
   nonEmptyCount: number;
   missingRate: number;
   uniqueCount: number;
+  uniqueCountCapped: boolean;
   topValues: { value: string; count: number }[];
   anomalies: string[];
 }
@@ -73,4 +74,81 @@ export interface ReportSummary {
   quarantineCount: number;
   duplicateGroupCount: number;
   classificationBreakdown: Record<CandidateType, number>;
+  parseFailCount?: number;
+}
+
+// ============================================================
+// Lossless Ingest Engine types
+// ============================================================
+
+export type ParseQuarantineReason = 'DECODE_FAILED' | 'COLUMN_MISALIGNMENT' | 'PARSE_ERROR';
+export type BusinessQuarantineReason = 'BUSINESS_KEY_EMPTY' | 'ALL_COLUMNS_EMPTY';
+export type QuarantineReason = ParseQuarantineReason | BusinessQuarantineReason;
+
+export interface ParseFailRecord {
+  rowIndex: number;
+  rawLine: string;
+  rawLineHash: string;
+  rawLinePreview: string;
+  reason: ParseQuarantineReason;
+  detail: string;
+}
+
+export interface CsvIngestDiagnosis {
+  format: 'csv';
+  detectedEncoding: 'utf8' | 'utf8bom' | 'cp932' | 'unknown';
+  encodingConfidence: 'bom' | 'valid_utf8' | 'heuristic' | 'fallback';
+  appliedEncoding: 'utf8' | 'cp932';
+  detectedDelimiter: ',' | '\t' | ';';
+  appliedDelimiter: ',' | '\t' | ';';
+  headerApplied: boolean;
+  totalRowsRead: number;
+  parseFailCount: number;
+  parseWarnings: string[];
+}
+
+export interface XlsxIngestDiagnosis {
+  format: 'xlsx';
+  sheetName: string;
+  headerApplied: boolean;
+  totalRowsRead: number;
+  parseFailCount: number;
+  parseWarnings: string[];
+}
+
+export type IngestDiagnosis = CsvIngestDiagnosis | XlsxIngestDiagnosis;
+
+export interface IngestResult {
+  diagnosis: IngestDiagnosis;
+  sourceFileHash: string;
+  schemaFingerprint: string;
+  columns: string[];
+  records: AsyncIterable<RawRecord[]>;
+  parseFailures: ParseFailRecord[];
+}
+
+export interface MappingSuggestion {
+  sourceColumn: string;
+  suggestedCanonical: string;
+  confidence: 'high' | 'medium';
+  reason: 'name_pattern';
+}
+
+export interface RunDiffBySource {
+  sourceKey: string;
+  recordCountDelta: number;
+  normalizedCountDelta: number;
+  quarantineCountDelta: number;
+  parseFailDelta: number;
+  schemaChanged: boolean;
+  schemaFingerprintPrev?: string;
+  schemaFingerprintCurr?: string;
+}
+
+export interface RunDiff {
+  previousRunId: string;
+  currentRunId: string;
+  logicalSourceKey: string;
+  bySource: RunDiffBySource[];
+  totals: { recordCountDelta: number; normalizedCountDelta: number; quarantineCountDelta: number; parseFailDelta: number };
 }

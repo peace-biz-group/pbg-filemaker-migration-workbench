@@ -33,6 +33,8 @@ describe('Pipeline runner', () => {
     expect(meta.summary!.recordCount).toBeGreaterThan(0);
     expect(existsSync(join(meta.outputDir, 'run-meta.json'))).toBe(true);
     expect(existsSync(join(meta.outputDir, 'normalized.csv'))).toBe(true);
+    expect(meta.sourceBatchId).toBeTruthy();
+    expect(meta.logicalSourceKey).toBeTruthy();
   });
 
   it('executes run-batch with multiple files', async () => {

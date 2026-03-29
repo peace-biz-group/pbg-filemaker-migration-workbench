@@ -17,12 +17,15 @@ export async function writeCsv(
 ): Promise<void> {
   if (records.length === 0) {
     // Write empty file with headers only
-    const ws = createWriteStream(filePath);
-    if (columns) {
-      ws.write(columns.join(',') + '\n');
-    }
-    ws.end();
-    return;
+    return new Promise<void>((resolve, reject) => {
+      const ws = createWriteStream(filePath);
+      ws.on('error', reject);
+      ws.on('finish', resolve);
+      if (columns) {
+        ws.write(columns.join(',') + '\n');
+      }
+      ws.end();
+    });
   }
 
   const cols = columns ?? Object.keys(records[0]);

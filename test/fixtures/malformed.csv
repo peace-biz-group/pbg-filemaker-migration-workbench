@@ -1,0 +1,4 @@
+name,phone,email
+山田太郎,03-1234-5678,yamada@example.com
+崩れた行,余分な列,foo,bar,baz
+正常な行,090-0000-0001,normal@example.com

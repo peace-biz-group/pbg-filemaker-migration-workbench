@@ -131,6 +131,27 @@ async function renderNewRun() {
         </div>
 
         <div class="form-group">
+          <label>文字コード (encoding)</label>
+          <select name="encoding">
+            <option value="auto">自動検出</option>
+            <option value="utf8">UTF-8</option>
+            <option value="cp932">Shift-JIS (CP932)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>区切り文字 (delimiter)</label>
+          <select name="delimiter">
+            <option value="auto">自動検出</option>
+            <option value=",">カンマ (,)</option>
+            <option value="\t">タブ (\\t)</option>
+            <option value=";">セミコロン (;)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label><input type="checkbox" name="hasHeader" checked> ヘッダ行あり</label>
+        </div>
+
+        <div class="form-group">
           <label>入力ファイル — ドラッグ＆ドロップまたはクリックでアップロード</label>
           <div class="drop-zone" id="drop-zone">
             <p>CSV / XLSX ファイルをここにドロップ<br>またはクリックしてファイルを選択</p>
@@ -156,6 +177,7 @@ async function renderNewRun() {
 
         <div style="display:flex;gap:8px;align-items:center">
           <button type="submit" class="btn btn-primary" id="run-submit">実行</button>
+          <button type="button" class="btn" id="preview-btn">Preview</button>
           <span id="run-status" style="font-size:13px;color:var(--text-secondary)"></span>
         </div>
       </form>
@@ -196,6 +218,12 @@ async function renderNewRun() {
         throw new Error('入力ファイルを指定してください');
       }
 
+      const ingestOptions = {
+        encoding: form.encoding.value,
+        delimiter: form.delimiter.value,
+        hasHeader: form.hasHeader.checked,
+      };
+
       let result;
       if (uploadedFiles.length > 0) {
         // Use multipart upload
@@ -208,6 +236,7 @@ async function renderNewRun() {
         if (filePathsText.length > 0) {
           formData.append('filePaths', JSON.stringify(filePathsText));
         }
+        formData.append('ingestOptions', JSON.stringify(ingestOptions));
         const res = await fetch('/api/runs', { method: 'POST', body: formData });
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
@@ -218,7 +247,7 @@ async function renderNewRun() {
         result = await api('/api/runs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode, configPath, filePaths: filePathsText }),
+          body: JSON.stringify({ mode, configPath, filePaths: filePathsText, ingestOptions }),
         });
       }
 
@@ -229,6 +258,67 @@ async function renderNewRun() {
       btn.disabled = false;
     }
   });
+
+  // Preview button handler
+  const previewBtn = $('#preview-btn');
+  if (previewBtn) {
+    previewBtn.addEventListener('click', async () => {
+      const form = $('#run-form');
+      const filePaths = form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean);
+      if (filePaths.length === 0 && uploadedFiles.length === 0) {
+        alert('ファイルを指定してください');
+        return;
+      }
+      const file = filePaths[0] ?? '';
+      if (!file) { alert('プレビューにはローカルパスを指定してください'); return; }
+      const enc = form.encoding.value;
+      const delim = form.delimiter.value;
+      try {
+        const data = await api(`/api/preview?file=${encodeURIComponent(file)}&encoding=${enc}&delimiter=${encodeURIComponent(delim)}`);
+        showPreviewModal(data);
+      } catch (err) {
+        alert('Preview 失敗: ' + err.message);
+      }
+    });
+  }
+}
+
+function showPreviewModal(data) {
+  // Remove existing modal
+  const existing = document.getElementById('preview-modal');
+  if (existing) existing.remove();
+
+  const diag = data.diagnosis || {};
+  const diagInfo = diag.format === 'csv'
+    ? `エンコード: ${diag.detectedEncoding} (${diag.encodingConfidence}) → ${diag.appliedEncoding} | 区切り: ${diag.appliedDelimiter === '\t' ? 'タブ' : diag.appliedDelimiter}`
+    : `形式: XLSX (${diag.sheetName || ''})`;
+
+  const modal = document.createElement('div');
+  modal.id = 'preview-modal';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:1000;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border-radius:8px;padding:24px;max-width:900px;width:100%;max-height:80vh;overflow:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h2 style="font-size:16px">Preview: ${escapeHtml(data.file.split('/').pop())}</h2>
+        <button onclick="document.getElementById('preview-modal').remove()" class="btn">閉じる</button>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${escapeHtml(diagInfo)}</p>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+        カラム: ${(data.columns || []).length} |
+        Schema FP: ${(data.schemaFingerprint || '').slice(0,16)}... |
+        Parse エラー: ${data.parseFailures ? data.parseFailures.length : 0}
+      </p>
+      ${data.mappingSuggestions && data.mappingSuggestions.length > 0 ? `
+        <div style="margin-bottom:12px;padding:8px;background:var(--surface-hover,#f5f5f5);border-radius:4px">
+          <strong style="font-size:12px">マッピング候補:</strong>
+          ${data.mappingSuggestions.map(s => `<span style="font-size:12px;margin-left:8px">${escapeHtml(s.sourceColumn)} → ${escapeHtml(s.suggestedCanonical)} (${s.confidence})</span>`).join('')}
+        </div>
+      ` : ''}
+      ${data.sampleRows && data.sampleRows.length > 0 ? renderDataTable(data.columns, data.sampleRows) : '<p class="empty">データなし</p>'}
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 function addFiles(fileList) {
@@ -294,6 +384,7 @@ async function renderRunDetail(runId) {
     const hasQuarantine = csvFiles.includes('quarantine.csv');
     const hasClassified = csvFiles.includes('classified.csv');
     const hasNormalized = csvFiles.includes('normalized.csv');
+    const hasParseQuarantine = csvFiles.includes('parse-quarantine.csv');
 
     let html = `
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
@@ -327,8 +418,20 @@ async function renderRunDetail(runId) {
           <div class="stat"><div class="label">カラム数</div><div class="value">${summary.columnCount || 0}</div></div>
           <div class="stat"><div class="label">正規化済み</div><div class="value">${(summary.normalizedCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">Quarantine</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">Parse エラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">重複グループ</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
         </div>
+        ${run.ingestDiagnoses && Object.keys(run.ingestDiagnoses).length > 0 ? `
+          <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
+            ${Object.entries(run.ingestDiagnoses).map(([f, d]) => {
+              const fname = f.split('/').pop();
+              if (d.format === 'csv') {
+                return `<span title="${escapeHtml(f)}">${escapeHtml(fname)}: ${d.detectedEncoding} (${d.encodingConfidence}) | ${d.appliedDelimiter === '\t' ? 'タブ' : d.appliedDelimiter}</span>`;
+              }
+              return `<span>${escapeHtml(fname)}: xlsx</span>`;
+            }).join(' | ')}
+          </div>
+        ` : ''}
     `;
 
     // Classification breakdown
@@ -349,6 +452,7 @@ async function renderRunDetail(runId) {
     if (hasAnomalies) tabs.push({ id: 'anomalies', label: '異常値', file: 'anomalies.csv' });
     if (hasDuplicates) tabs.push({ id: 'duplicates', label: '重複候補', file: 'duplicates.csv', special: 'dup-groups' });
     if (hasQuarantine) tabs.push({ id: 'quarantine', label: 'Quarantine', file: 'quarantine.csv' });
+    if (hasParseQuarantine) tabs.push({ id: 'parse-quarantine', label: 'Parse エラー', file: 'parse-quarantine.csv' });
     if (hasClassified) tabs.push({ id: 'classified', label: '分類結果', file: 'classified.csv' });
 
     if (tabs.length > 0) {

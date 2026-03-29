@@ -9,11 +9,14 @@ import { validatePhone, normalizePhone } from '../normalizers/phone.js';
 import { validateEmail, normalizeEmail } from '../normalizers/email.js';
 import { validateDate, normalizeDate } from '../normalizers/date.js';
 
+const VALUE_COUNTS_CAP = 10_000;
+
 interface ColumnAccumulator {
   name: string;
   totalCount: number;
   nonEmptyCount: number;
   valueCounts: Map<string, number>;
+  overflowed: boolean;
 }
 
 function resolveField(record: RawRecord, candidates: string[]): string | undefined {
@@ -41,13 +44,15 @@ export async function profileFile(
       const rowNum = totalRecords;
 
       if (columnNames.length === 0) {
-        columnNames = Object.keys(record);
+        // Skip internal lineage columns (prefixed with _)
+        columnNames = Object.keys(record).filter(k => !k.startsWith('_'));
         for (const name of columnNames) {
           accumulators.set(name, {
             name,
             totalCount: 0,
             nonEmptyCount: 0,
             valueCounts: new Map(),
+            overflowed: false,
           });
         }
       }
@@ -58,8 +63,11 @@ export async function profileFile(
         const val = record[col] ?? '';
         if (val.trim()) {
           acc.nonEmptyCount++;
-          const trimmed = val.trim();
-          acc.valueCounts.set(trimmed, (acc.valueCounts.get(trimmed) ?? 0) + 1);
+          if (!acc.overflowed) {
+            const trimmed = val.trim();
+            acc.valueCounts.set(trimmed, (acc.valueCounts.get(trimmed) ?? 0) + 1);
+            if (acc.valueCounts.size >= VALUE_COUNTS_CAP) acc.overflowed = true;
+          }
         }
       }
 
@@ -112,6 +120,7 @@ export async function profileFile(
       nonEmptyCount: acc.nonEmptyCount,
       missingRate: acc.totalCount > 0 ? 1 - acc.nonEmptyCount / acc.totalCount : 0,
       uniqueCount: acc.valueCounts.size,
+      uniqueCountCapped: acc.overflowed,
       topValues,
       anomalies: [],
     });
