@@ -183,4 +183,130 @@ describe('UI Server API', () => {
     const text = await res.text();
     expect(text).toContain('data:');
   });
+
+  // ===== Review API tests =====
+
+  describe('Review API', () => {
+    let reviewId: string;
+
+    it('POST /api/reviews creates a review from a run', async () => {
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const runId = runs[0].id;
+
+      const res = await fetch(`${baseUrl}/api/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId }),
+      });
+      expect(res.status).toBe(200);
+      const review = await res.json();
+      expect(review.id).toMatch(/^rev_/);
+      expect(review.reviewStatus).toBe('draft');
+      expect(review.columns.length).toBeGreaterThan(0);
+      reviewId = review.id;
+    });
+
+    it('GET /api/reviews lists reviews', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews`);
+      expect(res.status).toBe(200);
+      const reviews = await res.json();
+      expect(Array.isArray(reviews)).toBe(true);
+      expect(reviews.length).toBeGreaterThan(0);
+    });
+
+    it('GET /api/reviews/:id returns review detail', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews/${reviewId}`);
+      expect(res.status).toBe(200);
+      const review = await res.json();
+      expect(review.id).toBe(reviewId);
+      expect(review.columns).toBeDefined();
+    });
+
+    it('PUT /api/reviews/:id/columns updates column decisions', async () => {
+      const revRes = await fetch(`${baseUrl}/api/reviews/${reviewId}`);
+      const review = await revRes.json();
+      const firstCol = review.columns[0].sourceColumn;
+
+      const res = await fetch(`${baseUrl}/api/reviews/${reviewId}/columns`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([{
+          sourceColumn: firstCol,
+          humanSemanticField: 'customer_name',
+          humanFieldFamily: 'identity',
+          humanSection: 'basic_info',
+          decision: 'accepted',
+        }]),
+      });
+      expect(res.status).toBe(200);
+      const updated = await res.json();
+      const col = updated.columns.find((c: { sourceColumn: string }) => c.sourceColumn === firstCol);
+      expect(col.humanSemanticField).toBe('customer_name');
+      expect(col.decision).toBe('accepted');
+    });
+
+    it('PUT /api/reviews/:id/summary updates file metadata', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews/${reviewId}/summary`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          primaryFileType: 'apo_list',
+          reviewer: 'テスト',
+          reviewStatus: 'reviewed',
+        }),
+      });
+      expect(res.status).toBe(200);
+      const updated = await res.json();
+      expect(updated.primaryFileType).toBe('apo_list');
+      expect(updated.reviewer).toBe('テスト');
+    });
+
+    it('POST /api/reviews/:id/finalize generates bundle', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews/${reviewId}/finalize`, { method: 'POST' });
+      expect(res.status).toBe(200);
+      const result = await res.json();
+      expect(result.files).toContain('human-review.json');
+      expect(result.files).toContain('mapping-proposal.json');
+      expect(result.files).toContain('section-layout-proposal.json');
+      expect(result.files).toContain('summary.md');
+    });
+
+    it('GET /api/reviews/:id/files lists bundle files', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews/${reviewId}/files`);
+      expect(res.status).toBe(200);
+      const files = await res.json();
+      expect(files).toContain('mapping-proposal.json');
+    });
+
+    it('GET /api/reviews/:id/raw/:filename downloads bundle file', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews/${reviewId}/raw/summary.md`);
+      expect(res.status).toBe(200);
+      const text = await res.text();
+      expect(text).toContain('Review Summary');
+    });
+
+    it('DELETE /api/reviews/:id deletes a review', async () => {
+      // Create throwaway
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const createRes = await fetch(`${baseUrl}/api/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ runId: runs[0].id }),
+      });
+      const created = await createRes.json();
+
+      const delRes = await fetch(`${baseUrl}/api/reviews/${created.id}`, { method: 'DELETE' });
+      expect(delRes.status).toBe(200);
+
+      const getRes = await fetch(`${baseUrl}/api/reviews/${created.id}`);
+      expect(getRes.status).toBe(404);
+    });
+
+    it('returns 404 for non-existent review', async () => {
+      const res = await fetch(`${baseUrl}/api/reviews/nonexistent`);
+      expect(res.status).toBe(404);
+    });
+  });
 });

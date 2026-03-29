@@ -14,6 +14,11 @@ import { loadConfig } from '../config/defaults.js';
 import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
+import {
+  createReview, listReviews, getReview, updateReviewColumns,
+  updateReviewSummary, deleteReview as deleteReviewBundle,
+  getReviewOutputFiles, generateBundle,
+} from '../core/review-bundle.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -32,7 +37,11 @@ export function createApp(baseOutputDir: string) {
 
   // --- Pages (serve index.html for all page routes) ---
   const indexHtml = join(__dirname, 'public', 'index.html');
-  for (const route of ['/', '/new', '/runs/:id']) {
+  const spaRoutes = [
+    '/', '/new', '/runs/:id',
+    '/reviews/new', '/reviews/:id', '/reviews/:id/columns', '/reviews/:id/summary',
+  ];
+  for (const route of spaRoutes) {
     app.get(route, (_req, res) => {
       res.sendFile(indexHtml);
     });
@@ -384,6 +393,81 @@ export function createApp(baseOutputDir: string) {
     }
   });
 
+  // ===== Review API =====
+
+  // --- API: Create review from a run ---
+  app.post('/api/reviews', async (req, res) => {
+    try {
+      const { runId, fileIndex, configPath } = req.body;
+      if (!runId) return res.status(400).json({ error: 'runId is required' });
+      const config = loadConfig(configPath || undefined);
+      config.outputDir = baseOutputDir;
+      const review = await createReview(runId, baseOutputDir, config, fileIndex ?? 0);
+      res.json(review);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create review' });
+    }
+  });
+
+  // --- API: List reviews ---
+  app.get('/api/reviews', (_req, res) => {
+    res.json(listReviews(baseOutputDir));
+  });
+
+  // --- API: Get review detail ---
+  app.get('/api/reviews/:id', (req, res) => {
+    const review = getReview(baseOutputDir, req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Update column reviews ---
+  app.put('/api/reviews/:id/columns', (req, res) => {
+    const updates = req.body;
+    if (!Array.isArray(updates)) return res.status(400).json({ error: 'Expected array of column updates' });
+    const review = updateReviewColumns(baseOutputDir, req.params.id, updates);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Update review summary ---
+  app.put('/api/reviews/:id/summary', (req, res) => {
+    const review = updateReviewSummary(baseOutputDir, req.params.id, req.body);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Finalize review → generate bundle ---
+  app.post('/api/reviews/:id/finalize', (req, res) => {
+    try {
+      const files = generateBundle(baseOutputDir, req.params.id);
+      res.json({ files });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Bundle generation failed' });
+    }
+  });
+
+  // --- API: List review output files ---
+  app.get('/api/reviews/:id/files', (req, res) => {
+    res.json(getReviewOutputFiles(baseOutputDir, req.params.id));
+  });
+
+  // --- API: Download review bundle file ---
+  app.get('/api/reviews/:id/raw/:filename', (req, res) => {
+    const review = getReview(baseOutputDir, req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    const dir = join(baseOutputDir, 'reviews', req.params.id);
+    const filePath = join(dir, req.params.filename);
+    if (!existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    res.sendFile(resolve(filePath));
+  });
+
+  // --- API: Delete review ---
+  app.delete('/api/reviews/:id', (req, res) => {
+    const deleted = deleteReviewBundle(baseOutputDir, req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Review not found' });
+    res.json({ ok: true });
+  });
   // --- API: List config files ---
   app.get('/api/configs', (_req, res) => {
     const cwd = process.cwd();
