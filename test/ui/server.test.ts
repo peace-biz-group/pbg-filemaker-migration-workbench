@@ -262,7 +262,7 @@ describe('UI Server API', () => {
       expect(updated.reviewer).toBe('テスト');
     });
 
-    it('POST /api/reviews/:id/finalize generates bundle', async () => {
+    it('POST /api/reviews/:id/finalize generates bundle and saves to submitted', async () => {
       const res = await fetch(`${baseUrl}/api/reviews/${reviewId}/finalize`, { method: 'POST' });
       expect(res.status).toBe(200);
       const result = await res.json();
@@ -270,6 +270,8 @@ describe('UI Server API', () => {
       expect(result.files).toContain('mapping-proposal.json');
       expect(result.files).toContain('section-layout-proposal.json');
       expect(result.files).toContain('summary.md');
+      expect(result.savedTo).toBeTruthy();
+      expect(result.savedTo).toContain('submitted');
     });
 
     it('GET /api/reviews/:id/files lists bundle files', async () => {
@@ -308,5 +310,15 @@ describe('UI Server API', () => {
       const res = await fetch(`${baseUrl}/api/reviews/nonexistent`);
       expect(res.status).toBe(404);
     });
+  });
+
+  it('GET /api/server-info returns bundle directory info', async () => {
+    const res = await fetch(`${baseUrl}/api/server-info`);
+    expect(res.status).toBe(200);
+    const info = await res.json();
+    expect(info.bundleDir).toBeTruthy();
+    expect(info.submittedDir).toContain('submitted');
+    expect(info.checkedDir).toContain('checked');
+    expect(info.reworkDir).toContain('rework');
   });
 });

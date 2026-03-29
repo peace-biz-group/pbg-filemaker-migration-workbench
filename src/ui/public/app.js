@@ -1287,17 +1287,23 @@ async function renderReviewStep3(reviewId) {
       try {
         await saveSummary();
         const result = await api(`/api/reviews/${reviewId}/finalize`, { method: 'POST' });
-        status.textContent = 'バンドル出力完了';
+        status.textContent = '保存完了 — レビュー結果は常設PCに自動保存されました';
         status.style.color = 'var(--success)';
-        // Show files
+        // Show files and save location
         const filesDiv = document.getElementById('bundle-files');
         filesDiv.style.display = '';
-        filesDiv.innerHTML = `
+        let filesHtml = `
+          <div style="background:var(--bg);border:1px solid var(--success);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+            <strong style="color:var(--success)">保存済み</strong>
+            <span style="font-size:12px;color:var(--text-secondary)"> — このレビュー結果は自動保存されました。追加の送信や添付は不要です。</span>
+            ${result.savedTo ? `<br><span style="font-size:11px;color:var(--text-secondary)">保存先: ${escapeHtml(result.savedTo)}</span>` : ''}
+          </div>
           <h3>出力ファイル</h3>
           <ul class="file-list">
             ${result.files.map(f => `<li><a href="/api/reviews/${reviewId}/raw/${f}" target="_blank">${f}</a></li>`).join('')}
           </ul>
         `;
+        filesDiv.innerHTML = filesHtml;
       } catch (err) {
         status.textContent = `エラー: ${err.message}`;
         status.style.color = 'var(--danger)';

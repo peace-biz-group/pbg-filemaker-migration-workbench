@@ -216,6 +216,137 @@ OUTPUT_DIR=./my-output npm run ui
 - **重い処理はサーバー側**: ブラウザは結果表示のみ、パイプライン実行は Node.js サーバーが担当
 - **CLI と共存**: UI を起動しても CLI コマンドは引き続き使用可能
 
+## 福岡オフィス常設PC運用ガイド
+
+### 概要
+
+福岡オフィスの 1台の常設PC（以下「サーバーPC」）で本ツールを起動し、社内LAN上の他のPCのブラウザからアクセスしてCSVレビューを行う運用です。
+
+- サーバーPC: ツールを起動する PC（常設。Node.js がインストール済み）
+- 現場PC: ブラウザからアクセスしてレビューを行う PC（Node.js 不要）
+- レビュー結果はサーバーPCの固定ディレクトリに自動保存されます
+- 現場の方が「送信」「添付」「メール送付」する必要はありません
+
+### サーバーPCの初期セットアップ
+
+```bash
+# 1. プロジェクトを配置
+cd /path/to/pbg-filemaker-migration-workbench
+
+# 2. 依存パッケージをインストール
+npm install
+```
+
+### 起動方法
+
+```bash
+# 基本の起動（LAN内からアクセス可能）
+npm run ui:lan
+```
+
+起動すると以下のように表示されます:
+
+```
+  FileMaker Data Workbench UI
+  Local: http://localhost:3456
+  LAN: http://<このPCのIPアドレス>:3456
+
+  Output:  /path/to/output
+  Bundles: /path/to/output/review-bundles
+  Press Ctrl+C to stop
+```
+
+#### サーバーPCのIPアドレスを確認するには
+
+```bash
+# Windows
+ipconfig
+
+# Mac / Linux
+ifconfig
+# または
+ip addr
+```
+
+LAN内のIPアドレス（例: `192.168.1.100`）を確認してください。
+
+#### カスタム設定での起動
+
+```bash
+# ポートを変更する場合
+PORT=8080 npm run ui:lan
+
+# 出力ディレクトリを変更する場合
+OUTPUT_DIR=/home/user/workbench-data npm run ui:lan
+
+# レビューバンドルの保存先を別にする場合
+BUNDLE_DIR=/shared/review-bundles npm run ui:lan
+
+# すべてまとめて指定する例
+PORT=3456 OUTPUT_DIR=./output BUNDLE_DIR=./review-bundles npm run ui:lan
+```
+
+| 環境変数 | 既定値 | 説明 |
+|---|---|---|
+| `HOST` | `0.0.0.0` | リッスンアドレス（`0.0.0.0` = LAN内全インターフェース） |
+| `PORT` | `3456` | ポート番号 |
+| `OUTPUT_DIR` | `./output` | Run 結果の出力先 |
+| `BUNDLE_DIR` | `{OUTPUT_DIR}/review-bundles` | レビューバンドルの保存先 |
+
+### 現場担当者の使い方
+
+1. ブラウザを開く（Chrome 推奨）
+2. アドレスバーに `http://<サーバーPCのIP>:3456` を入力
+3. 「新規 Run」でCSVファイルを指定して実行
+4. Run結果画面で「列レビュー」ボタンを押す
+5. 各カラムの意味づけを確認・修正する
+6. 「サマリへ進む」→ ファイルタイプ選択 → 「バンドル出力」を押す
+7. **「保存済み」と表示されたら完了です。追加の作業は不要です**
+
+### レビューバンドルの保存先
+
+バンドル出力時、以下の場所に自動保存されます:
+
+```
+review-bundles/
+  submitted/     ← レビュー完了分がここに集まる
+    rev_YYYYMMDD_xxxx/
+      review-meta.json
+      human-review.json
+      mapping-proposal.json
+      section-layout-proposal.json
+      summary.md
+  checked/       ← オーナーが確認済みのものを移動
+  rework/        ← 差し戻しが必要なものを移動
+```
+
+### オーナー側の運用フロー
+
+1. サーバーPCの `review-bundles/submitted/` を定期的に確認する
+2. 各バンドルの `summary.md` を確認する
+3. 問題なければ `checked/` に移動する
+4. 修正が必要なら `rework/` に移動し、現場に差し戻す
+5. `mapping-proposal.json` の `mapping` を `workbench.config.json` の `columnMappings` に取り込む（手動）
+
+```bash
+# 例: 確認済みに移動
+mv review-bundles/submitted/rev_20260401_abcd review-bundles/checked/
+
+# 例: 差し戻し
+mv review-bundles/submitted/rev_20260401_abcd review-bundles/rework/
+```
+
+### 停止方法
+
+サーバーPCのターミナルで `Ctrl+C` を押してください。
+
+### セキュリティに関する注意
+
+- このツールに認証機能はありません
+- 社内LAN内でのみ使用してください
+- インターネットに公開しないでください
+- ファイアウォールでポート 3456 が社内LANにのみ開放されていることを確認してください
+
 ## テスト
 
 ```bash
@@ -228,5 +359,6 @@ npm test
 npm run typecheck  # 型チェック
 npm run lint       # ESLint
 npm test           # テスト実行
-npm run ui         # レビュー UI 起動
+npm run ui         # レビュー UI 起動（localhost のみ）
+npm run ui:lan     # レビュー UI 起動（LAN 内アクセス可能）
 ```
