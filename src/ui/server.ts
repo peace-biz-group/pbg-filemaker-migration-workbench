@@ -8,12 +8,12 @@
 import express from 'express';
 import multer from 'multer';
 import { resolve, join, extname } from 'node:path';
-import { existsSync, readFileSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { parse } from 'csv-parse/sync';
 import { loadConfig } from '../config/defaults.js';
 import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
+import type { IngestOptions } from '../ingest/ingest-options.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -57,8 +57,8 @@ export function createApp(baseOutputDir: string) {
     res.json(files);
   });
 
-  // --- API: Read CSV data from a run's output file (paginated) ---
-  app.get('/api/runs/:id/data/:filename', (req, res) => {
+  // --- API: Read CSV data from a run's output file (paginated, streaming) ---
+  app.get('/api/runs/:id/data/:filename', async (req, res) => {
     const run = getRun(baseOutputDir, req.params.id);
     if (!run) return res.status(404).json({ error: 'Run not found' });
 
@@ -67,22 +67,38 @@ export function createApp(baseOutputDir: string) {
       return res.status(404).json({ error: 'File not found' });
     }
 
-    const offset = parseInt(String(req.query.offset ?? '0'), 10);
+    const offset = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10));
     const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10), 500);
 
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const records = parse(content, { columns: true, skip_empty_lines: true, bom: true }) as Record<string, string>[];
-      const columns = records.length > 0 ? Object.keys(records[0]) : [];
-      const page = records.slice(offset, offset + limit);
+      const { createReadStream } = await import('node:fs');
+      const { parse: csvParse } = await import('csv-parse');
 
-      res.json({
-        columns,
-        totalCount: records.length,
-        offset,
-        limit,
-        rows: page,
-      });
+      // Count total first (fast scan)
+      let totalCount = 0;
+      const countStream = createReadStream(filePath).pipe(csvParse({ columns: true, skip_empty_lines: true, bom: true }));
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _row of countStream) totalCount++;
+
+      // Read the slice using from/to record numbers (1-indexed, header excluded)
+      const rows: Record<string, string>[] = [];
+      let columns: string[] = [];
+
+      const readStream = createReadStream(filePath).pipe(
+        csvParse({
+          columns: true,
+          skip_empty_lines: true,
+          bom: true,
+          from: offset + 1,
+          to: offset + limit,
+        })
+      );
+      for await (const row of readStream) {
+        if (columns.length === 0) columns = Object.keys(row as Record<string, string>);
+        rows.push(row as Record<string, string>);
+      }
+
+      res.json({ columns, totalCount, offset, limit, rows });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Read failed' });
     }
@@ -111,6 +127,16 @@ export function createApp(baseOutputDir: string) {
       const configPath = req.body.configPath || undefined;
       const config = loadConfig(configPath);
       config.outputDir = baseOutputDir;
+
+      // Parse ingestOptions from body if provided
+      if (req.body.ingestOptions) {
+        try {
+          const io = typeof req.body.ingestOptions === 'string'
+            ? JSON.parse(req.body.ingestOptions)
+            : req.body.ingestOptions;
+          config.ingestOptions = io;
+        } catch { /* ignore parse errors */ }
+      }
 
       // Collect input file paths
       let inputFiles: string[] = [];
@@ -219,8 +245,8 @@ export function createApp(baseOutputDir: string) {
     });
   });
 
-  // --- API: Read source (original input) data for before/after comparison ---
-  app.get('/api/runs/:id/source-data', (req, res) => {
+  // --- API: Read source (original input) data for before/after comparison (streaming) ---
+  app.get('/api/runs/:id/source-data', async (req, res) => {
     const run = getRun(baseOutputDir, req.params.id);
     if (!run) return res.status(404).json({ error: 'Run not found' });
 
@@ -233,23 +259,45 @@ export function createApp(baseOutputDir: string) {
       return res.status(404).json({ error: 'Source file not found or not CSV' });
     }
 
-    const offset = parseInt(String(req.query.offset ?? '0'), 10);
+    const offset = Math.max(0, parseInt(String(req.query.offset ?? '0'), 10));
     const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10), 500);
 
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const records = parse(content, { columns: true, skip_empty_lines: true, bom: true }) as Record<string, string>[];
-      const columns = records.length > 0 ? Object.keys(records[0]) : [];
-      const page = records.slice(offset, offset + limit);
+      const { createReadStream } = await import('node:fs');
+      const { parse: csvParse } = await import('csv-parse');
 
-      res.json({ columns, totalCount: records.length, offset, limit, rows: page });
+      // Count total
+      let totalCount = 0;
+      const countStream = createReadStream(filePath).pipe(csvParse({ columns: true, skip_empty_lines: true, bom: true }));
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _row of countStream) totalCount++;
+
+      // Read slice
+      const rows: Record<string, string>[] = [];
+      let columns: string[] = [];
+
+      const readStream = createReadStream(filePath).pipe(
+        csvParse({
+          columns: true,
+          skip_empty_lines: true,
+          bom: true,
+          from: offset + 1,
+          to: offset + limit,
+        })
+      );
+      for await (const row of readStream) {
+        if (columns.length === 0) columns = Object.keys(row as Record<string, string>);
+        rows.push(row as Record<string, string>);
+      }
+
+      res.json({ columns, totalCount, offset, limit, rows });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Read failed' });
     }
   });
 
   // --- API: Duplicate groups (grouped view) ---
-  app.get('/api/runs/:id/duplicates', (req, res) => {
+  app.get('/api/runs/:id/duplicates', async (req, res) => {
     const run = getRun(baseOutputDir, req.params.id);
     if (!run) return res.status(404).json({ error: 'Run not found' });
 
@@ -259,8 +307,12 @@ export function createApp(baseOutputDir: string) {
     }
 
     try {
-      const content = readFileSync(filePath, 'utf-8');
-      const records = parse(content, { columns: true, skip_empty_lines: true, bom: true }) as Record<string, string>[];
+      const { createReadStream } = await import('node:fs');
+      const { parse: csvParse } = await import('csv-parse');
+
+      const records: Record<string, string>[] = [];
+      const stream = createReadStream(filePath).pipe(csvParse({ columns: true, skip_empty_lines: true, bom: true }));
+      for await (const row of stream) records.push(row as Record<string, string>);
 
       // Group by group_id
       const groups = new Map<string, { matchType: string; matchKey: string; records: Record<string, string>[] }>();
@@ -288,6 +340,47 @@ export function createApp(baseOutputDir: string) {
       res.json({ totalGroups: result.length, groups: result });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Read failed' });
+    }
+  });
+
+  // --- API: Preview file ---
+  app.get('/api/preview', async (req, res) => {
+    const file = req.query.file as string;
+    if (!file || !existsSync(file)) {
+      return res.status(400).json({ error: 'file parameter required and must exist' });
+    }
+
+    const ingestOptions: IngestOptions = {
+      encoding: (req.query.encoding as IngestOptions['encoding']) ?? 'auto',
+      delimiter: (req.query.delimiter as IngestOptions['delimiter']) ?? 'auto',
+      hasHeader: req.query.hasHeader !== 'false',
+      previewRows: req.query.rows ? parseInt(String(req.query.rows), 10) : 100,
+    };
+
+    try {
+      const { ingestFile } = await import('../io/file-reader.js');
+      const { generateMappingSuggestions } = await import('../core/column-mapper.js');
+
+      const ir = await ingestFile(file, ingestOptions, 5000);
+      const sampleRows: Record<string, string>[] = [];
+      for await (const chunk of ir.records) {
+        for (const row of chunk) sampleRows.push(row);
+      }
+
+      const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
+
+      res.json({
+        file,
+        diagnosis: ir.diagnosis,
+        sourceFileHash: ir.sourceFileHash,
+        schemaFingerprint: ir.schemaFingerprint,
+        columns: ir.columns,
+        sampleRows,
+        parseFailures: ir.parseFailures,
+        mappingSuggestions: suggestions.suggestions,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Preview failed' });
     }
   });
 

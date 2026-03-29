@@ -3,6 +3,15 @@ import { z } from 'zod';
 /** Column mapping: source column name → canonical field name. */
 const columnMappingSchema = z.record(z.string(), z.string());
 
+const ingestOptionsSchema = z.object({
+  encoding: z.enum(['auto', 'utf8', 'cp932']).default('auto'),
+  delimiter: z.enum(['auto', ',', '\t', ';']).default('auto'),
+  hasHeader: z.boolean().default(true),
+  skipRows: z.number().int().min(0).default(0),
+  previewRows: z.number().int().min(1).optional(),
+});
+export type IngestOptionsConfig = z.infer<typeof ingestOptionsSchema>;
+
 const normalizationRulesSchema = z.object({
   trimWhitespace: z.boolean().default(true),
   normalizeFullWidthToHalfWidth: z.boolean().default(true),
@@ -58,6 +67,10 @@ const inputFileSchema = z.object({
   mappingPattern: z.string().optional(),
   /** Optional: label for this source in reports. */
   label: z.string().optional(),
+  /** Optional: logical source key for this file. */
+  sourceKey: z.string().optional(),
+  /** Optional: per-file ingest options. */
+  ingestOptions: ingestOptionsSchema.partial().optional(),
 });
 
 export const workbenchConfigSchema = z.object({
@@ -119,6 +132,15 @@ export const workbenchConfigSchema = z.object({
 
   /** Output directory. */
   outputDir: z.string().default('./output'),
+
+  /** Global ingest options (can be overridden per file). */
+  ingestOptions: ingestOptionsSchema.partial().optional(),
+
+  /** Index-based column mappings: filename pattern → column mapping. */
+  indexMappings: z.record(z.string(), z.record(z.string(), z.string())).default({}),
+
+  /** Schema fingerprint-based column mappings: schemaFP → column mapping. */
+  schemaMappings: z.record(z.string(), columnMappingSchema).default({}),
 });
 
 export type WorkbenchConfig = z.infer<typeof workbenchConfigSchema>;

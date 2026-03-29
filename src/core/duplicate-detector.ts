@@ -102,6 +102,14 @@ export async function detectDuplicates(
     }
   });
 
+  // Warn if any index is very large
+  const LARGE_INDEX_WARN = 500_000;
+  for (const [name, idx] of [['phone', phoneIndex], ['email', emailIndex], ['name_company', nameCompanyIndex], ['name_address', nameAddressIndex]] as const) {
+    if (idx.size > LARGE_INDEX_WARN) {
+      console.warn(`[warn] ${name} index has ${idx.size} entries — memory usage may be high. Consider reducing dedup scope.`);
+    }
+  }
+
   // Build groups from indices (only where count >= 2)
   const groups: DuplicateGroup[] = [];
   let groupId = 0;

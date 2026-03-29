@@ -11,7 +11,7 @@
 import type { RawRecord, CandidateType } from '../types/index.js';
 import type { WorkbenchConfig, ClassificationRules } from '../config/schema.js';
 import { readFileInChunks } from '../io/file-reader.js';
-import { writeCsv } from '../io/csv-writer.js';
+import { writeCsv, appendCsv } from '../io/csv-writer.js';
 import { join } from 'node:path';
 import { ensureOutputDir } from '../io/report-writer.js';
 
@@ -57,9 +57,6 @@ function classifyRecord(
 
   // Sort by: absolute score descending (more matched fields = stronger signal),
   // then by priority order for ties.
-  // Absolute score is preferred over ratio because in FileMaker data, customer/deal
-  // fields often co-exist with activity fields. A type matching 5/6 fields is
-  // stronger evidence than one matching 3/3, even though the ratio is lower.
   const priorityOrder = rules.priorityOrder;
   viable.sort((a, b) => {
     const scoreDiff = b.score - a.score;
@@ -104,15 +101,16 @@ export async function classifyFile(
     quarantine: 0,
   };
 
-  const allClassified: RawRecord[] = [];
+  let isFirst = true;
   let rowCounter = 0;
 
   await readFileInChunks(filePath, config.chunkSize, async (chunk, _idx) => {
+    const classifiedChunk: RawRecord[] = [];
     for (const record of chunk) {
       rowCounter++;
       const result = classifyRecord(record, config.classification);
       breakdown[result.type]++;
-      allClassified.push({
+      classifiedChunk.push({
         _row: String(rowCounter),
         _candidate_type: result.type,
         _confidence: result.confidence,
@@ -120,9 +118,13 @@ export async function classifyFile(
         ...record,
       });
     }
+    if (isFirst) {
+      await writeCsv(outputPath, classifiedChunk);
+      isFirst = false;
+    } else {
+      await appendCsv(outputPath, classifiedChunk, Object.keys(classifiedChunk[0] ?? {}));
+    }
   });
-
-  await writeCsv(outputPath, allClassified);
 
   return { breakdown, outputPath };
 }
