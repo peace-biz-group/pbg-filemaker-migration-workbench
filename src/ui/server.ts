@@ -9,11 +9,17 @@ import express from 'express';
 import multer from 'multer';
 import { resolve, join, extname } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config/defaults.js';
 import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
+import { ALL_LABELS } from './labels.js';
+import { saveTemplate, loadTemplate, listTemplates, deleteTemplate, findMatchingTemplates } from '../core/template-store.js';
+import type { FileTemplate } from '../types/index.js';
+import { detectHeaderLikelihood } from '../ingest/header-detector.js';
+import { scanForMojibake } from '../ingest/mojibake-detector.js';
 import {
   createReview, listReviews, getReview, updateReviewColumns,
   updateReviewSummary, deleteReview as deleteReviewBundle,
@@ -387,6 +393,22 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
       const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
 
+      // Header detection: analyze first sample row as potential header
+      const firstDataRow = sampleRows[0] ? Object.values(sampleRows[0]) : [];
+      const headerDetection = detectHeaderLikelihood(firstDataRow);
+
+      // Mojibake scan
+      const mojibakeScan = scanForMojibake(sampleRows, 20);
+
+      // File size
+      let fileSize: number | null = null;
+      try {
+        const stats = await stat(file);
+        fileSize = stats.size;
+      } catch {
+        // ignore
+      }
+
       res.json({
         file,
         diagnosis: ir.diagnosis,
@@ -396,10 +418,66 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         sampleRows,
         parseFailures: ir.parseFailures,
         mappingSuggestions: suggestions.suggestions,
+        headerDetection,
+        mojibakeScan,
+        fileSize,
       });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Preview failed' });
     }
+  });
+
+  // --- API: Labels ---
+  app.get('/api/labels', (_req, res) => {
+    res.json(ALL_LABELS);
+  });
+
+  // --- API: Templates ---
+  app.get('/api/templates', (_req, res) => {
+    const templates = listTemplates(baseOutputDir);
+    res.json(templates);
+  });
+
+  app.get('/api/templates/:id', (req, res) => {
+    const template = loadTemplate(baseOutputDir, req.params.id);
+    if (!template) return res.status(404).json({ error: 'Template not found' });
+    res.json(template);
+  });
+
+  app.post('/api/templates', (req, res) => {
+    const template = req.body as FileTemplate;
+    if (!template || !template.id || !template.displayName) {
+      return res.status(400).json({ error: 'Invalid template: id and displayName required' });
+    }
+    saveTemplate(baseOutputDir, template);
+    res.status(201).json(template);
+  });
+
+  app.delete('/api/templates/:id', (req, res) => {
+    const deleted = deleteTemplate(baseOutputDir, req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Template not found' });
+    res.json({ ok: true });
+  });
+
+  // NOTE: 'match' must remain before any parameterised POST route to avoid being captured as :id
+  app.post('/api/templates/match', (req, res) => {
+    const { filename, columns, encoding, hasHeader } = req.body as {
+      filename: string;
+      columns: string[];
+      encoding: string;
+      hasHeader: boolean;
+    };
+    if (!filename || !Array.isArray(columns)) {
+      return res.status(400).json({ error: 'filename and columns are required' });
+    }
+    const matches = findMatchingTemplates(
+      baseOutputDir,
+      filename,
+      columns,
+      encoding ?? 'utf8',
+      hasHeader ?? true,
+    );
+    res.json(matches);
   });
 
   // ===== Review API =====
@@ -488,6 +566,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     if (!deleted) return res.status(404).json({ error: 'Review not found' });
     res.json({ ok: true });
   });
+
   // --- API: Server info (for admin display) ---
   app.get('/api/server-info', (_req, res) => {
     res.json({
