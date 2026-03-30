@@ -441,6 +441,7 @@ export function createApp(baseOutputDir: string) {
     res.json({ ok: true });
   });
 
+  // NOTE: 'match' must remain before any parameterised POST route to avoid being captured as :id
   app.post('/api/templates/match', (req, res) => {
     const { filename, columns, encoding, hasHeader } = req.body as {
       filename: string;

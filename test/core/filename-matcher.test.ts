@@ -55,10 +55,9 @@ describe('filename-matcher', () => {
       expect(sim).toBeLessThan(0.4);
     });
     it('returns 0.0 for empty after normalization', () => {
-      // Both normalize to the same or to very short strings
+      // Both normalize to 1-char strings ('a' and 'b') which are different
       const sim = filenameSimilarity('a.csv', 'b.csv');
-      expect(sim).toBeGreaterThanOrEqual(0);
-      expect(sim).toBeLessThanOrEqual(1.0);
+      expect(sim).toBe(0);
     });
   });
 });

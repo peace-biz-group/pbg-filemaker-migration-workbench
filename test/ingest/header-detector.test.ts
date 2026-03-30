@@ -46,6 +46,7 @@ describe('header-detector', () => {
   it('handles all-empty-string cells', () => {
     const result = detectHeaderLikelihood(['', '', '']);
     expect(result.isLikelyHeader).toBe(true);
+    expect(result.confidence).toBe('low');
   });
 
   it('generates warning for data-looking rows', () => {

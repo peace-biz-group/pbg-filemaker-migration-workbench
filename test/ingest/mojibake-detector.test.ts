@@ -68,8 +68,8 @@ describe('mojibake-detector', () => {
       col2: 'Ã¥Â¤§',
     }));
     const result = scanForMojibake(rows);
-    if (result.hasMojibake && result.mojibakeRatio > 0.3) {
-      expect(result.warnings.some(w => w.includes('多いです') || w.includes('Shift-JIS'))).toBe(true);
-    }
+    expect(result.hasMojibake).toBe(true);
+    expect(result.mojibakeRatio).toBeGreaterThan(0.3);
+    expect(result.warnings.some(w => w.includes('多いです') || w.includes('Shift-JIS'))).toBe(true);
   });
 });
