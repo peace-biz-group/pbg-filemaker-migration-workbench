@@ -6,6 +6,17 @@
 const $ = (sel) => document.querySelector(sel);
 const app = $('#app');
 
+// --- Labels cache ---
+let labels = {};
+async function loadLabels() {
+  try {
+    labels = await api('/api/labels');
+  } catch { /* use empty fallback */ }
+}
+function label(dict, key) {
+  return (labels[dict] && labels[dict][key]) || key;
+}
+
 // --- Router ---
 
 function navigate(path) {
@@ -135,7 +146,7 @@ async function renderNewRun() {
           <select name="encoding">
             <option value="auto">自動検出</option>
             <option value="utf8">UTF-8</option>
-            <option value="cp932">Shift-JIS (CP932)</option>
+            <option value="cp932" selected>Shift-JIS (CP932)</option>
           </select>
         </div>
         <div class="form-group">
@@ -275,12 +286,122 @@ async function renderNewRun() {
       const delim = form.delimiter.value;
       try {
         const data = await api(`/api/preview?file=${encodeURIComponent(file)}&encoding=${enc}&delimiter=${encodeURIComponent(delim)}`);
+        // Large file guidance
+        const totalRows = (data.diagnosis && data.diagnosis.totalRowsRead) || 0;
+        const fileSize = data.fileSize || 0;
+        const isLargeFile = totalRows > 100000 || fileSize > 50 * 1024 * 1024;
+        if (isLargeFile) {
+          const rowsInMan = Math.round(totalRows / 10000);
+          const guideEl = document.createElement('div');
+          guideEl.className = 'large-file-guide';
+          guideEl.innerHTML = `
+            <p>このファイルは大きいです（${rowsInMan > 0 ? rowsInMan + '万行以上' : '50MB以上'}）。定義確認には先頭のサンプルで十分です。</p>
+            <div class="btn-group">
+              <button class="btn btn-primary" id="btn-sample-run">サンプルで定義を確認</button>
+              <button class="btn" id="btn-full-run">全件で実行</button>
+            </div>
+          `;
+          const statusEl = document.getElementById('run-status');
+          if (statusEl) statusEl.parentElement.before(guideEl);
+          document.getElementById('btn-sample-run')?.addEventListener('click', () => {
+            guideEl.remove();
+            const form = document.querySelector('#run-form');
+            if (form) { form.mode.value = 'profile'; }
+            alert('モードを「profile」に設定しました。実行してください。');
+          });
+          document.getElementById('btn-full-run')?.addEventListener('click', () => guideEl.remove());
+        }
         showPreviewModal(data);
       } catch (err) {
         alert('Preview 失敗: ' + err.message);
       }
     });
   }
+}
+
+// --- Upload confirmation modal ---
+// Called before run execution when files are selected to match against templates
+async function showUploadConfirmModal(filename, columns, encoding, hasHeader, onConfirm) {
+  let matches = [];
+  try {
+    matches = await api('/api/templates/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, columns, encoding: encoding || 'utf8', hasHeader: hasHeader !== false }),
+    });
+  } catch { /* ignore, show new-file option only */ }
+
+  const existing = document.getElementById('upload-confirm-modal');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.id = 'upload-confirm-modal';
+  overlay.className = 'modal-overlay';
+
+  // Build candidate cards HTML
+  let cardsHtml = '';
+  for (let i = 0; i < Math.min(matches.length, 3); i++) {
+    const m = matches[i];
+    const reasons = (m.reasons || []).map(r => escapeHtml(label('matchReasons', r.factor))).join('、');
+    cardsHtml += `
+      <div class="modal-candidate-card" data-idx="${i}">
+        <div class="candidate-name">&#x25CB; ${escapeHtml(m.template.displayName)}</div>
+        <div class="candidate-reasons">${reasons}</div>
+      </div>
+    `;
+  }
+  // New file option
+  cardsHtml += `
+    <div class="modal-candidate-card" data-idx="-1">
+      <div class="candidate-name">&#x25CB; 新しい種類のファイルとして扱う</div>
+      <div class="candidate-reasons">テンプレートを使わずに処理します</div>
+    </div>
+  `;
+
+  overlay.innerHTML = `
+    <div class="modal-content">
+      <div class="modal-title">このファイルは何ですか？</div>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+        ファイル名: ${escapeHtml(filename)}
+      </p>
+      <div id="candidate-list">${cardsHtml}</div>
+      <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn" id="confirm-modal-cancel">キャンセル</button>
+        <button class="btn btn-primary" id="confirm-modal-ok">確定</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(overlay);
+
+  let selectedIdx = matches.length > 0 ? 0 : -1; // default: first match or "new"
+
+  function updateSelection() {
+    overlay.querySelectorAll('.modal-candidate-card').forEach((card, i) => {
+      const cardIdx = parseInt(card.dataset.idx);
+      const isSelected = cardIdx === selectedIdx;
+      card.classList.toggle('selected', isSelected);
+      card.querySelector('.candidate-name').textContent = (isSelected ? '● ' : '○ ') +
+        card.querySelector('.candidate-name').textContent.replace(/^[●○] /, '');
+    });
+  }
+
+  // Auto-select first candidate
+  updateSelection();
+
+  overlay.querySelectorAll('.modal-candidate-card').forEach(card => {
+    card.addEventListener('click', () => {
+      selectedIdx = parseInt(card.dataset.idx);
+      updateSelection();
+    });
+  });
+
+  document.getElementById('confirm-modal-cancel').addEventListener('click', () => overlay.remove());
+  document.getElementById('confirm-modal-ok').addEventListener('click', () => {
+    overlay.remove();
+    const selectedTemplate = selectedIdx >= 0 ? matches[selectedIdx]?.template : null;
+    onConfirm(selectedTemplate);
+  });
 }
 
 function showPreviewModal(data) {
@@ -311,14 +432,73 @@ function showPreviewModal(data) {
       ${data.mappingSuggestions && data.mappingSuggestions.length > 0 ? `
         <div style="margin-bottom:12px;padding:8px;background:var(--surface-hover,#f5f5f5);border-radius:4px">
           <strong style="font-size:12px">マッピング候補:</strong>
-          ${data.mappingSuggestions.map(s => `<span style="font-size:12px;margin-left:8px">${escapeHtml(s.sourceColumn)} → ${escapeHtml(s.suggestedCanonical)} (${s.confidence})</span>`).join('')}
+          ${data.mappingSuggestions.map(s => `<span style="font-size:12px;margin-left:8px">${escapeHtml(s.sourceColumn)} → ${escapeHtml(label('semanticFields', s.suggestedCanonical))} (${s.confidence})</span>`).join('')}
         </div>
       ` : ''}
+      ${renderMojibakeWarnings(data.mojibakeScan, (data.diagnosis || {}).appliedEncoding)}
+      ${renderHeaderWarnings(data.headerDetection, (data.diagnosis || {}).headerApplied !== false)}
       ${data.sampleRows && data.sampleRows.length > 0 ? renderDataTable(data.columns, data.sampleRows) : '<p class="empty">データなし</p>'}
     </div>
   `;
   document.body.appendChild(modal);
   modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+
+  // Handle header toggle — re-fetch preview with new hasHeader
+  const headerToggle = modal.querySelector('#toggle-has-header');
+  if (headerToggle) {
+    headerToggle.addEventListener('change', async () => {
+      const form = document.querySelector('#run-form');
+      if (!form) return;
+      const file = form.filePaths?.value?.split('\n').map(s => s.trim()).filter(Boolean)[0];
+      if (!file) return;
+      const enc = form.encoding?.value || 'auto';
+      const delim = form.delimiter?.value || 'auto';
+      const hasHdr = headerToggle.checked;
+      try {
+        const newData = await api(`/api/preview?file=${encodeURIComponent(file)}&encoding=${enc}&delimiter=${encodeURIComponent(delim)}&hasHeader=${hasHdr}`);
+        modal.remove();
+        showPreviewModal(newData);
+      } catch (err) {
+        alert('プレビュー再取得失敗: ' + err.message);
+      }
+    });
+  }
+}
+
+// --- Header detection warning rendering ---
+function renderHeaderWarnings(headerDetection, currentHasHeader, onToggle) {
+  if (!headerDetection) return '';
+  const warnings = headerDetection.warnings || [];
+  if (warnings.length === 0) return '';
+
+  const warningHtml = warnings.map(w => `<p style="margin-bottom:4px">${escapeHtml(w)}</p>`).join('');
+  return `
+    <div class="warning-banner" id="header-warning">
+      ${warningHtml}
+      <div style="margin-top:8px">
+        <label style="cursor:pointer">
+          <input type="checkbox" id="toggle-has-header" ${currentHasHeader ? 'checked' : ''}>
+          1行目を項目名として使う
+        </label>
+      </div>
+    </div>
+  `;
+}
+
+// --- Mojibake warning rendering ---
+function renderMojibakeWarnings(mojibakeScan, encoding) {
+  if (!mojibakeScan) return '';
+  let html = '';
+  if (mojibakeScan.mojibakeRatio > 0.3) {
+    html += `<div class="danger-banner">${escapeHtml(mojibakeScan.warnings[0] || '文字化けが多いです。')}</div>`;
+  } else if (mojibakeScan.hasMojibake) {
+    html += `<div class="warning-banner">${escapeHtml(mojibakeScan.warnings[0] || '文字化けの可能性があります。')}</div>`;
+  }
+  if (mojibakeScan.hasControlChars) {
+    const ctrlWarn = mojibakeScan.warnings.find(w => w.includes('制御文字')) || `制御文字が含まれています（${mojibakeScan.controlCharCount}箇所）`;
+    html += `<div class="warning-banner">${escapeHtml(ctrlWarn)}</div>`;
+  }
+  return html;
 }
 
 function addFiles(fileList) {
@@ -417,7 +597,7 @@ async function renderRunDetail(runId) {
           <div class="stat"><div class="label">レコード数</div><div class="value">${(summary.recordCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">カラム数</div><div class="value">${summary.columnCount || 0}</div></div>
           <div class="stat"><div class="label">正規化済み</div><div class="value">${(summary.normalizedCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">Quarantine</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">確認が必要</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">Parse エラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">重複グループ</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
         </div>
@@ -437,9 +617,8 @@ async function renderRunDetail(runId) {
     // Classification breakdown
     if (Object.values(breakdown).some(v => v > 0)) {
       html += '<h3>分類内訳</h3><div class="stats">';
-      const typeLabels = { customer: 'Customer', deal: 'Deal', transaction: 'Transaction', activity: 'Activity', quarantine: 'Quarantine' };
       for (const [type, count] of Object.entries(breakdown)) {
-        html += `<div class="stat"><div class="label">${typeLabels[type] || type}</div><div class="value">${(count || 0).toLocaleString()}</div></div>`;
+        html += `<div class="stat"><div class="label">${label('fileTypes', type)}</div><div class="value">${(count || 0).toLocaleString()}</div></div>`;
       }
       html += '</div>';
     }
@@ -745,4 +924,4 @@ function truncate(str, maxLen) {
 }
 
 // --- Init ---
-route();
+loadLabels().then(() => route());

@@ -402,3 +402,99 @@ tr:hover td { background: #f0f4ff; }
   header { padding: 0 12px; gap: 16px; }
   main { padding: 0 12px; }
 }
+
+/* ============================================================
+   Review Workflow v2 — New styles
+   ============================================================ */
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 40px 16px;
+  overflow: auto;
+}
+.modal-content {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 80vh;
+  overflow: auto;
+}
+.modal-title {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+/* Template candidate cards */
+.modal-candidate-card {
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.modal-candidate-card:hover { border-color: var(--primary); }
+.modal-candidate-card.selected {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+.modal-candidate-card .candidate-name {
+  font-weight: 600;
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+.modal-candidate-card .candidate-reasons {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* Warning / info banners */
+.warning-banner {
+  background: #fef3c7;
+  border: 1px solid #d97706;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #92400e;
+}
+.danger-banner {
+  background: #fee2e2;
+  border: 1px solid #dc2626;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #991b1b;
+}
+.info-banner {
+  background: #eff6ff;
+  border: 1px solid #2563eb;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  color: #1e40af;
+}
+
+/* Large file guidance */
+.large-file-guide {
+  background: #f0fdf4;
+  border: 1px solid #16a34a;
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+.large-file-guide p { margin-bottom: 8px; }
+.large-file-guide .btn-group { display: flex; gap: 8px; }
