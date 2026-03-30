@@ -152,3 +152,42 @@ export interface RunDiff {
   bySource: RunDiffBySource[];
   totals: { recordCountDelta: number; normalizedCountDelta: number; quarantineCountDelta: number; parseFailDelta: number };
 }
+
+// ============================================================
+// Template System types (Review Workflow v2)
+// ============================================================
+
+/**
+ * A reusable file template saved from a review session.
+ * Stored as JSON in {outputDir}/.templates/{id}.json
+ */
+export interface FileTemplate {
+  id: string;                        // UUID or schemaFingerprint-based
+  displayName: string;               // Japanese display name, e.g. "アポリスト"
+  createdAt: string;                 // ISO 8601 timestamp
+  updatedAt: string;
+  columnCount: number;
+  columnNames: string[];             // original column names in order
+  schemaFingerprint: string;         // SHA-256 of sorted column names
+  defaultEncoding: 'utf8' | 'cp932';
+  hasHeader: boolean;
+  fileTypeLabel: string;             // e.g. "アポリスト", "顧客一覧"
+  columnMapping: Record<string, string>; // source col → canonical field
+  sectionGroups?: { label: string; columns: string[] }[];
+  knownFilenamePatterns: string[];   // normalized filename stems that matched
+}
+
+/**
+ * A template match result with score and reasons.
+ */
+export interface TemplateMatch {
+  template: FileTemplate;
+  score: number;                     // 0-1 composite score
+  reasons: TemplateMatchReason[];
+}
+
+export interface TemplateMatchReason {
+  factor: 'filename' | 'schema_fingerprint' | 'column_overlap' | 'column_count' | 'encoding' | 'header';
+  description: string;               // Japanese explanation for UI
+  contribution: number;              // 0-1 contribution to score
+}
