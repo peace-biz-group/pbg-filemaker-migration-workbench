@@ -239,10 +239,19 @@ npm install
 
 ### 起動方法
 
-```bash
-# 基本の起動（LAN内からアクセス可能）
+**Windows（PowerShell）:**
+
+```powershell
 npm run ui:lan
 ```
+
+**Mac / Linux（ターミナル）:**
+
+```bash
+npm run ui:lan
+```
+
+> `ui:lan` スクリプトは `cross-env` を使用しているため、Windows・Mac・Linux いずれでも同じコマンドで起動できます。
 
 起動すると以下のように表示されます:
 
@@ -251,17 +260,25 @@ npm run ui:lan
   Local: http://localhost:3456
   LAN: http://<このPCのIPアドレス>:3456
 
-  Output:  /path/to/output
-  Bundles: /path/to/output/review-bundles
+  Output:  C:\Users\user\workbench\output
+  Bundles: C:\Users\user\workbench\output\review-bundles
   Press Ctrl+C to stop
 ```
 
+> 起動時に `Output:` と `Bundles:` の **絶対パス** が表示されます。保存先がここに表示されているパスであることを確認してください。
+
+> **重要**: ターミナル（コマンドプロンプト / PowerShell）を閉じるとサーバーが停止します。常設PCはターミナルを開いたままにしてください。
+
+> **推奨**: 常設PCはスリープ・画面オフにならないよう、電源設定を変更してください。
+
 #### サーバーPCのIPアドレスを確認するには
 
-```bash
+```powershell
 # Windows
 ipconfig
+```
 
+```bash
 # Mac / Linux
 ifconfig
 # または
@@ -272,26 +289,34 @@ LAN内のIPアドレス（例: `192.168.1.100`）を確認してください。
 
 #### カスタム設定での起動
 
+**Windows（PowerShell）:**
+
+```powershell
+# 出力ディレクトリを絶対パスで指定（推奨）
+$env:OUTPUT_DIR="C:\Users\user\workbench\output"; npm run ui:lan
+
+# レビューバンドルの保存先を指定
+$env:OUTPUT_DIR="C:\Users\user\workbench\output"; $env:BUNDLE_DIR="C:\Users\user\workbench\review-bundles"; npm run ui:lan
+```
+
+**Mac / Linux（ターミナル）:**
+
 ```bash
-# ポートを変更する場合
-PORT=8080 npm run ui:lan
+# 出力ディレクトリを絶対パスで指定（推奨）
+OUTPUT_DIR=/home/user/workbench/output npm run ui:lan
 
-# 出力ディレクトリを変更する場合
-OUTPUT_DIR=/home/user/workbench-data npm run ui:lan
-
-# レビューバンドルの保存先を別にする場合
-BUNDLE_DIR=/shared/review-bundles npm run ui:lan
-
-# すべてまとめて指定する例
-PORT=3456 OUTPUT_DIR=./output BUNDLE_DIR=./review-bundles npm run ui:lan
+# レビューバンドルの保存先を指定
+OUTPUT_DIR=/home/user/workbench/output BUNDLE_DIR=/home/user/workbench/review-bundles npm run ui:lan
 ```
 
 | 環境変数 | 既定値 | 説明 |
 |---|---|---|
 | `HOST` | `0.0.0.0` | リッスンアドレス（`0.0.0.0` = LAN内全インターフェース） |
 | `PORT` | `3456` | ポート番号 |
-| `OUTPUT_DIR` | `./output` | Run 結果の出力先 |
-| `BUNDLE_DIR` | `{OUTPUT_DIR}/review-bundles` | レビューバンドルの保存先 |
+| `OUTPUT_DIR` | `./output` | Run 結果の出力先（**常設運用では絶対パス推奨**） |
+| `BUNDLE_DIR` | `{OUTPUT_DIR}/review-bundles` | レビューバンドルの保存先（**常設運用では絶対パス推奨**） |
+
+> **絶対パス推奨の理由**: 相対パス（`./output` など）はサーバーの起動場所（カレントディレクトリ）によって保存先が変わります。常設運用では `C:\Users\user\workbench\output` のような絶対パスを指定することで、起動場所によらず保存先が固定されます。
 
 ### 現場担当者の使い方
 
