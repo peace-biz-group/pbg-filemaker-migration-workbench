@@ -1,4 +1,9 @@
-// src/ingest/header-detector.ts
+/**
+ * Header row heuristic detection for CSV files.
+ * Analyzes the first row of a CSV to determine whether it is likely a header row
+ * (column names) or a data row. Returns confidence as the strength of the verdict:
+ * confidence='high' means strong evidence; confidence='low' means mixed signals.
+ */
 
 export interface HeaderEvidence {
   columnIndex: number;
@@ -9,6 +14,7 @@ export interface HeaderEvidence {
 
 export interface HeaderDetectionResult {
   isLikelyHeader: boolean;
+  /** Confidence in the isLikelyHeader verdict (not a standalone quality score). */
   confidence: 'high' | 'medium' | 'low';
   warnings: string[];
   evidence: HeaderEvidence[];

@@ -75,6 +75,7 @@ export const MATCH_REASON_LABELS: Record<string, string> = {
 export const ENCODING_LABELS: Record<string, string> = {
   auto: '自動検出',
   utf8: 'UTF-8',
+  utf8bom: 'UTF-8 (BOM付き)',
   cp932: 'Shift-JIS (CP932)',
 };
 

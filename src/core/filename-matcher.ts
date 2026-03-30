@@ -92,7 +92,8 @@ export function filenameSimilarity(a: string, b: string): number {
   if (na === nb) return 1.0;
 
   if (na.length < 2 || nb.length < 2) {
-    return na === nb ? 1.0 : 0.0;
+    // too short for bigrams — return 0 (equality already handled above)
+    return 0.0;
   }
 
   const ba = bigrams(na);

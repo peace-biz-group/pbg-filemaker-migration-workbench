@@ -32,6 +32,9 @@ function cellHasMojibake(value: string): boolean {
     let latinExtCount = 0;
     for (let i = 0; i < value.length; i++) {
       const cp = value.charCodeAt(i);
+      // Latin Extended heuristic: detects UTF-8 Japanese decoded as Latin-1.
+      // Note: may produce false positives for legitimate European names (e.g., Müller, Café).
+      // The mojibakeRatio > 0.02 threshold prevents single-cell false positives in large files.
       if (cp >= 0x00c0 && cp <= 0x00ff) {
         latinExtCount++;
         if (latinExtCount >= 2) return true;
