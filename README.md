@@ -216,6 +216,162 @@ OUTPUT_DIR=./my-output npm run ui
 - **重い処理はサーバー側**: ブラウザは結果表示のみ、パイプライン実行は Node.js サーバーが担当
 - **CLI と共存**: UI を起動しても CLI コマンドは引き続き使用可能
 
+## 福岡オフィス常設PC運用ガイド
+
+### 概要
+
+福岡オフィスの 1台の常設PC（以下「サーバーPC」）で本ツールを起動し、社内LAN上の他のPCのブラウザからアクセスしてCSVレビューを行う運用です。
+
+- サーバーPC: ツールを起動する PC（常設。Node.js がインストール済み）
+- 現場PC: ブラウザからアクセスしてレビューを行う PC（Node.js 不要）
+- レビュー結果はサーバーPCの固定ディレクトリに自動保存されます
+- 現場の方が「送信」「添付」「メール送付」する必要はありません
+
+### サーバーPCの初期セットアップ
+
+```bash
+# 1. プロジェクトを配置
+cd /path/to/pbg-filemaker-migration-workbench
+
+# 2. 依存パッケージをインストール
+npm install
+```
+
+### 起動方法
+
+**Windows（PowerShell）:**
+
+```powershell
+npm run ui:lan
+```
+
+**Mac / Linux（ターミナル）:**
+
+```bash
+npm run ui:lan
+```
+
+> `ui:lan` スクリプトは `cross-env` を使用しているため、Windows・Mac・Linux いずれでも同じコマンドで起動できます。
+
+起動すると以下のように表示されます:
+
+```
+  FileMaker Data Workbench UI
+  Local: http://localhost:3456
+  LAN: http://<このPCのIPアドレス>:3456
+
+  Output:  C:\Users\user\workbench\output
+  Bundles: C:\Users\user\workbench\output\review-bundles
+  Press Ctrl+C to stop
+```
+
+> 起動時に `Output:` と `Bundles:` の **絶対パス** が表示されます。保存先がここに表示されているパスであることを確認してください。
+
+> **重要**: ターミナル（コマンドプロンプト / PowerShell）を閉じるとサーバーが停止します。常設PCはターミナルを開いたままにしてください。
+
+> **推奨**: 常設PCはスリープ・画面オフにならないよう、電源設定を変更してください。
+
+#### サーバーPCのIPアドレスを確認するには
+
+```powershell
+# Windows
+ipconfig
+```
+
+```bash
+# Mac / Linux
+ifconfig
+# または
+ip addr
+```
+
+LAN内のIPアドレス（例: `192.168.1.100`）を確認してください。
+
+#### カスタム設定での起動
+
+**Windows（PowerShell）:**
+
+```powershell
+# 出力ディレクトリを絶対パスで指定（推奨）
+$env:OUTPUT_DIR="C:\Users\user\workbench\output"; npm run ui:lan
+
+# レビューバンドルの保存先を指定
+$env:OUTPUT_DIR="C:\Users\user\workbench\output"; $env:BUNDLE_DIR="C:\Users\user\workbench\review-bundles"; npm run ui:lan
+```
+
+**Mac / Linux（ターミナル）:**
+
+```bash
+# 出力ディレクトリを絶対パスで指定（推奨）
+OUTPUT_DIR=/home/user/workbench/output npm run ui:lan
+
+# レビューバンドルの保存先を指定
+OUTPUT_DIR=/home/user/workbench/output BUNDLE_DIR=/home/user/workbench/review-bundles npm run ui:lan
+```
+
+| 環境変数 | 既定値 | 説明 |
+|---|---|---|
+| `HOST` | `0.0.0.0` | リッスンアドレス（`0.0.0.0` = LAN内全インターフェース） |
+| `PORT` | `3456` | ポート番号 |
+| `OUTPUT_DIR` | `./output` | Run 結果の出力先（**常設運用では絶対パス推奨**） |
+| `BUNDLE_DIR` | `{OUTPUT_DIR}/review-bundles` | レビューバンドルの保存先（**常設運用では絶対パス推奨**） |
+
+> **絶対パス推奨の理由**: 相対パス（`./output` など）はサーバーの起動場所（カレントディレクトリ）によって保存先が変わります。常設運用では `C:\Users\user\workbench\output` のような絶対パスを指定することで、起動場所によらず保存先が固定されます。
+
+### 現場担当者の使い方
+
+1. ブラウザを開く（Chrome 推奨）
+2. アドレスバーに `http://<サーバーPCのIP>:3456` を入力
+3. 「新規 Run」でCSVファイルを指定して実行
+4. Run結果画面で「列レビュー」ボタンを押す
+5. 各カラムの意味づけを確認・修正する
+6. 「サマリへ進む」→ ファイルタイプ選択 → 「バンドル出力」を押す
+7. **「保存済み」と表示されたら完了です。追加の作業は不要です**
+
+### レビューバンドルの保存先
+
+バンドル出力時、以下の場所に自動保存されます:
+
+```
+review-bundles/
+  submitted/     ← レビュー完了分がここに集まる
+    rev_YYYYMMDD_xxxx/
+      review-meta.json
+      human-review.json
+      mapping-proposal.json
+      section-layout-proposal.json
+      summary.md
+  checked/       ← オーナーが確認済みのものを移動
+  rework/        ← 差し戻しが必要なものを移動
+```
+
+### オーナー側の運用フロー
+
+1. サーバーPCの `review-bundles/submitted/` を定期的に確認する
+2. 各バンドルの `summary.md` を確認する
+3. 問題なければ `checked/` に移動する
+4. 修正が必要なら `rework/` に移動し、現場に差し戻す
+5. `mapping-proposal.json` の `mapping` を `workbench.config.json` の `columnMappings` に取り込む（手動）
+
+```bash
+# 例: 確認済みに移動
+mv review-bundles/submitted/rev_20260401_abcd review-bundles/checked/
+
+# 例: 差し戻し
+mv review-bundles/submitted/rev_20260401_abcd review-bundles/rework/
+```
+
+### 停止方法
+
+サーバーPCのターミナルで `Ctrl+C` を押してください。
+
+### セキュリティに関する注意
+
+- このツールに認証機能はありません
+- 社内LAN内でのみ使用してください
+- インターネットに公開しないでください
+- ファイアウォールでポート 3456 が社内LANにのみ開放されていることを確認してください
+
 ## テスト
 
 ```bash
@@ -228,5 +384,6 @@ npm test
 npm run typecheck  # 型チェック
 npm run lint       # ESLint
 npm test           # テスト実行
-npm run ui         # レビュー UI 起動
+npm run ui         # レビュー UI 起動（localhost のみ）
+npm run ui:lan     # レビュー UI 起動（LAN 内アクセス可能）
 ```

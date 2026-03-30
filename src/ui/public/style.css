@@ -395,6 +395,165 @@ tr:hover td { background: #f0f4ff; }
   color: var(--text-secondary);
 }
 
+/* Review stepper */
+.review-stepper {
+  display: flex;
+  gap: 0;
+  margin-bottom: 24px;
+}
+.review-step {
+  flex: 1;
+  text-align: center;
+  padding: 12px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-bottom: 3px solid var(--border);
+  transition: all 0.2s;
+}
+.review-step.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 600;
+}
+.review-step.done {
+  color: var(--success);
+  border-bottom-color: var(--success);
+}
+
+/* Review column card */
+.review-col-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 12px;
+  transition: border-color 0.15s;
+}
+.review-col-card:hover {
+  border-color: var(--primary);
+}
+.review-col-card .col-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.review-col-card .col-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+.review-col-card .col-stats {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.review-col-card .sample-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+.sample-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 11px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.review-col-card .suggestion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.review-col-card .input-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.review-col-card .input-row label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  display: block;
+  margin-bottom: 2px;
+}
+.review-col-card .input-row select,
+.review-col-card .input-row input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.decision-row {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+.decision-row label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.decision-row input[type="radio"] {
+  margin: 0;
+}
+
+/* Confidence badge colors */
+.confidence-high { background: #dcfce7; color: var(--success); }
+.confidence-medium { background: #fef3c7; color: var(--warning); }
+.confidence-low { background: #fee2e2; color: var(--danger); }
+
+/* Review progress counter */
+.review-progress-bar {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* Chip group for mixed families */
+.chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.chip-group label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.chip-group label:has(input:checked) {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+}
+.chip-group input[type="checkbox"] {
+  display: none;
+}
+
+/* Review summary diff table */
+.diff-row-override { background: #fef3c7; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .stats { grid-template-columns: repeat(2, 1fr); }

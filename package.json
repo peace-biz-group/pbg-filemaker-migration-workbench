@@ -21,7 +21,8 @@
     "run-all": "tsx src/cli/index.ts run-all",
     "run-batch": "tsx src/cli/index.ts run-batch",
     "ui": "tsx src/ui/server.ts",
-    "ui:dev": "tsx watch src/ui/server.ts"
+    "ui:dev": "tsx watch src/ui/server.ts",
+    "ui:lan": "cross-env HOST=0.0.0.0 PORT=3456 tsx src/ui/server.ts"
   },
   "keywords": [
     "filemaker",
@@ -50,6 +51,7 @@
     "@types/node": "^25.5.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
+    "cross-env": "^10.1.0",
     "eslint": "^10.1.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",

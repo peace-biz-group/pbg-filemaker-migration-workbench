@@ -20,13 +20,27 @@ import { saveTemplate, loadTemplate, listTemplates, deleteTemplate, findMatching
 import type { FileTemplate } from '../types/index.js';
 import { detectHeaderLikelihood } from '../ingest/header-detector.js';
 import { scanForMojibake } from '../ingest/mojibake-detector.js';
+import {
+  createReview, listReviews, getReview, updateReviewColumns,
+  updateReviewSummary, deleteReview as deleteReviewBundle,
+  getReviewOutputFiles, generateBundle,
+} from '../core/review-bundle.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
 
-export function createApp(baseOutputDir: string) {
+export function createApp(baseOutputDir: string, bundleDir?: string) {
   const app = express();
   app.use(express.json());
+
+  // Resolved bundle directory for submitted review bundles
+  const resolvedBundleDir = resolve(bundleDir || join(baseOutputDir, 'review-bundles'));
+  const submittedDir = join(resolvedBundleDir, 'submitted');
+  const checkedDir = join(resolvedBundleDir, 'checked');
+  const reworkDir = join(resolvedBundleDir, 'rework');
+  for (const d of [submittedDir, checkedDir, reworkDir]) {
+    mkdirSync(d, { recursive: true });
+  }
 
   // Static files
   app.use('/static', express.static(join(__dirname, 'public')));
@@ -38,7 +52,11 @@ export function createApp(baseOutputDir: string) {
 
   // --- Pages (serve index.html for all page routes) ---
   const indexHtml = join(__dirname, 'public', 'index.html');
-  for (const route of ['/', '/new', '/runs/:id']) {
+  const spaRoutes = [
+    '/', '/new', '/runs/:id',
+    '/reviews/new', '/reviews/:id', '/reviews/:id/columns', '/reviews/:id/summary',
+  ];
+  for (const route of spaRoutes) {
     app.get(route, (_req, res) => {
       res.sendFile(indexHtml);
     });
@@ -462,6 +480,104 @@ export function createApp(baseOutputDir: string) {
     res.json(matches);
   });
 
+  // ===== Review API =====
+
+  // --- API: Create review from a run ---
+  app.post('/api/reviews', async (req, res) => {
+    try {
+      const { runId, fileIndex, configPath } = req.body;
+      if (!runId) return res.status(400).json({ error: 'runId is required' });
+      const config = loadConfig(configPath || undefined);
+      config.outputDir = baseOutputDir;
+      const review = await createReview(runId, baseOutputDir, config, fileIndex ?? 0);
+      res.json(review);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create review' });
+    }
+  });
+
+  // --- API: List reviews ---
+  app.get('/api/reviews', (_req, res) => {
+    res.json(listReviews(baseOutputDir));
+  });
+
+  // --- API: Get review detail ---
+  app.get('/api/reviews/:id', (req, res) => {
+    const review = getReview(baseOutputDir, req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Update column reviews ---
+  app.put('/api/reviews/:id/columns', (req, res) => {
+    const updates = req.body;
+    if (!Array.isArray(updates)) return res.status(400).json({ error: 'Expected array of column updates' });
+    const review = updateReviewColumns(baseOutputDir, req.params.id, updates);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Update review summary ---
+  app.put('/api/reviews/:id/summary', (req, res) => {
+    const review = updateReviewSummary(baseOutputDir, req.params.id, req.body);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Finalize review → generate bundle + copy to submitted ---
+  app.post('/api/reviews/:id/finalize', async (req, res) => {
+    try {
+      const files = generateBundle(baseOutputDir, req.params.id);
+
+      // Copy bundle to submitted directory
+      const review = getReview(baseOutputDir, req.params.id);
+      if (review) {
+        const { cpSync } = await import('node:fs');
+        const srcDir = join(baseOutputDir, 'reviews', req.params.id);
+        const destDir = join(submittedDir, req.params.id);
+        mkdirSync(destDir, { recursive: true });
+        cpSync(srcDir, destDir, { recursive: true });
+      }
+
+      res.json({ files, savedTo: submittedDir });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Bundle generation failed' });
+    }
+  });
+
+  // --- API: List review output files ---
+  app.get('/api/reviews/:id/files', (req, res) => {
+    res.json(getReviewOutputFiles(baseOutputDir, req.params.id));
+  });
+
+  // --- API: Download review bundle file ---
+  app.get('/api/reviews/:id/raw/:filename', (req, res) => {
+    const review = getReview(baseOutputDir, req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    const dir = join(baseOutputDir, 'reviews', req.params.id);
+    const filePath = join(dir, req.params.filename);
+    if (!existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    res.sendFile(resolve(filePath));
+  });
+
+  // --- API: Delete review ---
+  app.delete('/api/reviews/:id', (req, res) => {
+    const deleted = deleteReviewBundle(baseOutputDir, req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Review not found' });
+    res.json({ ok: true });
+  });
+
+  // --- API: Server info (for admin display) ---
+  app.get('/api/server-info', (_req, res) => {
+    res.json({
+      bundleDir: resolvedBundleDir,
+      submittedDir,
+      checkedDir,
+      reworkDir,
+      outputDir: baseOutputDir,
+    });
+  });
+
   // --- API: List config files ---
   app.get('/api/configs', (_req, res) => {
     const cwd = process.cwd();
@@ -478,13 +594,21 @@ export function createApp(baseOutputDir: string) {
 
 // Start server when run directly
 const port = parseInt(process.env.PORT ?? '3456', 10);
+const host = process.env.HOST ?? '0.0.0.0';
 const outputDir = process.env.OUTPUT_DIR ?? './output';
+const bundleDir = process.env.BUNDLE_DIR || undefined;
 mkdirSync(outputDir, { recursive: true });
 
-const app = createApp(resolve(outputDir));
-app.listen(port, () => {
+const app = createApp(resolve(outputDir), bundleDir ? resolve(bundleDir) : undefined);
+app.listen(port, host, () => {
+  const lanNote = host === '0.0.0.0'
+    ? '  LAN: http://<このPCのIPアドレス>:' + port
+    : '';
   console.log(`\n  FileMaker Data Workbench UI`);
-  console.log(`  http://localhost:${port}\n`);
-  console.log(`  Output: ${resolve(outputDir)}`);
+  console.log(`  Local: http://localhost:${port}`);
+  if (lanNote) console.log(lanNote);
+  console.log(`\n  Output:  ${resolve(outputDir)}`);
+  if (bundleDir) console.log(`  Bundles: ${resolve(bundleDir)}`);
+  else console.log(`  Bundles: ${resolve(outputDir)}/review-bundles`);
   console.log(`  Press Ctrl+C to stop\n`);
 });

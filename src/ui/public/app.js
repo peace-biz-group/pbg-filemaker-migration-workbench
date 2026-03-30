@@ -37,6 +37,13 @@ document.addEventListener('click', (e) => {
 function route() {
   const path = location.pathname;
   if (path === '/new') return renderNewRun();
+  if (path === '/reviews/new') return renderReviewStep1();
+  const reviewColMatch = path.match(/^\/reviews\/(.+)\/columns$/);
+  if (reviewColMatch) return renderReviewStep2(reviewColMatch[1]);
+  const reviewSumMatch = path.match(/^\/reviews\/(.+)\/summary$/);
+  if (reviewSumMatch) return renderReviewStep3(reviewSumMatch[1]);
+  const reviewMatch = path.match(/^\/reviews\/([^/]+)$/);
+  if (reviewMatch) return renderReviewStep2(reviewMatch[1]);
   const runMatch = path.match(/^\/runs\/(.+)$/);
   if (runMatch) return renderRunDetail(runMatch[1]);
   return renderDashboard();
@@ -59,11 +66,17 @@ async function renderDashboard() {
   app.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="font-size:18px">ダッシュボード</h2>
-      <a href="/new" class="btn btn-primary">新規 Run</a>
+      <div class="btn-group">
+        <a href="/reviews/new" class="btn">レビュー</a>
+        <a href="/new" class="btn btn-primary">新規 Run</a>
+      </div>
     </div>
     <div class="card" id="run-list-card">
       <h3>直近の実行結果</h3>
       <div class="loading">読み込み中...</div>
+    </div>
+    <div class="card" id="review-list-card" style="display:none">
+      <h3>レビュー</h3>
     </div>
   `;
 
@@ -101,6 +114,34 @@ async function renderDashboard() {
     }
     html += '</div>';
     container.innerHTML = `<h3>直近の実行結果 (${runs.length}件)</h3>` + html;
+    // Load reviews for dashboard
+    try {
+      const reviews = await api('/api/reviews');
+      if (reviews.length > 0) {
+        const revCard = document.getElementById('review-list-card');
+        revCard.style.display = '';
+        let revHtml = `<h3>レビュー (${reviews.length}件)</h3><div class="run-list">`;
+        for (const rev of reviews) {
+          const statusBadge = rev.reviewStatus === 'draft'
+            ? '<span class="badge badge-warning">下書き</span>'
+            : rev.reviewStatus === 'reviewed'
+              ? '<span class="badge badge-info">レビュー済</span>'
+              : `<span class="badge">${rev.reviewStatus}</span>`;
+          const time = new Date(rev.updatedAt).toLocaleString('ja-JP');
+          revHtml += `
+            <a href="/reviews/${rev.id}/columns" class="run-item">
+              <span class="run-mode">${escapeHtml(rev.fileName)}</span>
+              ${statusBadge}
+              <span class="run-files">${rev.reviewer || '—'}</span>
+              <span class="run-time">${time}</span>
+            </a>
+          `;
+        }
+        revHtml += '</div>';
+        revCard.innerHTML = revHtml;
+      }
+    } catch { /* ignore review load error */ }
+
   } catch (err) {
     $('#run-list-card').innerHTML = `<p class="empty">読み込みに失敗しました: ${err.message}</p>`;
   }
@@ -572,6 +613,7 @@ async function renderRunDetail(runId) {
           Run: ${run.mode} ${statusBadge}
         </h2>
         <div class="btn-group">
+          <button class="btn btn-primary" id="btn-start-review-from-run" title="列レビューを開始">列レビュー</button>
           <button class="btn" id="btn-rerun" title="同じ設定で再実行">再実行</button>
           <button class="btn btn-danger" id="btn-delete" title="この Run を削除">削除</button>
           <a href="/" class="btn">ダッシュボードに戻る</a>
@@ -670,6 +712,25 @@ async function renderRunDetail(runId) {
         navigate('/');
       } catch (err) {
         alert('削除に失敗しました: ' + err.message);
+      }
+    });
+
+    // Start review from run
+    document.getElementById('btn-start-review-from-run').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-start-review-from-run');
+      btn.disabled = true;
+      btn.textContent = '作成中...';
+      try {
+        const review = await api('/api/reviews', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId }),
+        });
+        navigate(`/reviews/${review.id}/columns`);
+      } catch (err) {
+        alert('レビュー作成に失敗: ' + err.message);
+        btn.disabled = false;
+        btn.textContent = '列レビュー';
       }
     });
 
@@ -921,6 +982,527 @@ function escapeHtml(str) {
 function truncate(str, maxLen) {
   if (!str || str.length <= maxLen) return str || '';
   return str.slice(0, maxLen - 3) + '...';
+}
+
+// --- Review enums ---
+
+const FILE_TYPES = [
+  { value: 'apo_list', label: 'アポリスト' },
+  { value: 'customer_master', label: '顧客マスタ' },
+  { value: 'call_history', label: '架電履歴' },
+  { value: 'visit_history', label: '訪問履歴' },
+  { value: 'progress_management', label: '進捗管理' },
+  { value: 'estimate_product', label: '見積/商材' },
+  { value: 'document_review', label: '書類/審査' },
+  { value: 'mixed_unknown', label: '混合/不明' },
+];
+
+const FIELD_FAMILIES = [
+  { value: 'identity', label: '本人情報' },
+  { value: 'contact', label: '連絡先' },
+  { value: 'customer_basic', label: '顧客基本' },
+  { value: 'company_store', label: '会社/店舗' },
+  { value: 'source_list', label: 'リスト/媒体' },
+  { value: 'sales_activity', label: '営業活動' },
+  { value: 'visit_schedule', label: '訪問予定' },
+  { value: 'progress', label: '進捗' },
+  { value: 'estimate', label: '見積' },
+  { value: 'product', label: '商材' },
+  { value: 'finance_review', label: '売上/審査' },
+  { value: 'documents', label: '書類' },
+  { value: 'cost', label: '原価' },
+  { value: 'notes', label: 'メモ' },
+  { value: 'metadata', label: 'システム' },
+  { value: 'raw_extra', label: 'その他/未分類' },
+];
+
+const SECTIONS = [
+  { value: 'basic_info', label: '基本情報' },
+  { value: 'contact_info', label: '連絡先情報' },
+  { value: 'source_info', label: 'リスト情報' },
+  { value: 'activity_history', label: '活動履歴' },
+  { value: 'visit_info', label: '訪問情報' },
+  { value: 'progress_info', label: '進捗情報' },
+  { value: 'estimate_product_info', label: '見積/商材情報' },
+  { value: 'finance_review_info', label: '売上/審査情報' },
+  { value: 'document_info', label: '書類情報' },
+  { value: 'cost_info', label: '原価情報' },
+  { value: 'notes_info', label: 'メモ情報' },
+  { value: 'system_info', label: 'システム情報' },
+  { value: 'raw_extra_info', label: 'その他' },
+];
+
+const DECISIONS = [
+  { value: 'accepted', label: '承認' },
+  { value: 'adjusted', label: '修正' },
+  { value: 'unknown', label: '不明' },
+  { value: 'unused', label: '不使用' },
+];
+
+function renderStepper(step) {
+  const steps = [
+    { n: 1, label: 'ファイル選択' },
+    { n: 2, label: 'カラムレビュー' },
+    { n: 3, label: 'サマリ / 出力' },
+  ];
+  return `<div class="review-stepper">${steps.map(s =>
+    `<div class="review-step ${s.n === step ? 'active' : s.n < step ? 'done' : ''}">${s.n}. ${s.label}</div>`
+  ).join('')}</div>`;
+}
+
+function selectOptions(items, selected) {
+  return items.map(i =>
+    `<option value="${i.value}"${i.value === selected ? ' selected' : ''}>${i.label}</option>`
+  ).join('');
+}
+
+// --- Review Step 1: File select / preview ---
+
+async function renderReviewStep1() {
+  app.innerHTML = `
+    ${renderStepper(1)}
+    <h2 style="font-size:18px;margin-bottom:16px">レビュー — ファイル選択</h2>
+    <div class="card" id="review-step1">
+      <div class="loading">実行結果を読み込み中...</div>
+    </div>
+    <div class="card" id="existing-reviews" style="display:none">
+      <h3>既存レビュー</h3>
+      <div class="loading">読み込み中...</div>
+    </div>
+  `;
+
+  try {
+    const [runs, reviews] = await Promise.all([
+      api('/api/runs'),
+      api('/api/reviews'),
+    ]);
+
+    const completed = runs.filter(r => r.status === 'completed');
+    const container = document.getElementById('review-step1');
+
+    if (completed.length === 0) {
+      container.innerHTML = `<div class="empty"><p>完了した Run がありません。先に <a href="/new">Run を実行</a> してください。</p></div>`;
+      return;
+    }
+
+    let html = `
+      <div class="form-group">
+        <label>レビュー対象の Run を選択</label>
+        <select id="review-run-select">
+          ${completed.map(r => {
+            const files = r.inputFiles.map(f => f.split('/').pop()).join(', ');
+            const time = new Date(r.startedAt).toLocaleString('ja-JP');
+            return `<option value="${r.id}">${r.mode} — ${files} (${time})</option>`;
+          }).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>レビュー担当者（任意）</label>
+        <input type="text" id="review-reviewer" placeholder="例: 田中" style="max-width:300px">
+      </div>
+      <button class="btn btn-primary" id="btn-start-review">列レビューを開始</button>
+      <span id="review-start-status" style="margin-left:12px;font-size:13px;color:var(--text-secondary)"></span>
+    `;
+    container.innerHTML = html;
+
+    document.getElementById('btn-start-review').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-start-review');
+      const status = document.getElementById('review-start-status');
+      btn.disabled = true;
+      status.textContent = 'レビューを作成中...';
+      try {
+        const runId = document.getElementById('review-run-select').value;
+        const review = await api('/api/reviews', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ runId }),
+        });
+        // Set reviewer if provided
+        const reviewer = document.getElementById('review-reviewer').value.trim();
+        if (reviewer) {
+          await api(`/api/reviews/${review.id}/summary`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reviewer }),
+          });
+        }
+        navigate(`/reviews/${review.id}/columns`);
+      } catch (err) {
+        status.textContent = `エラー: ${err.message}`;
+        status.style.color = 'var(--danger)';
+        btn.disabled = false;
+      }
+    });
+
+    // Show existing reviews
+    if (reviews.length > 0) {
+      const revContainer = document.getElementById('existing-reviews');
+      revContainer.style.display = '';
+      let revHtml = '<h3>既存レビュー</h3><div class="run-list">';
+      for (const rev of reviews) {
+        const statusBadge = rev.reviewStatus === 'draft'
+          ? '<span class="badge badge-warning">下書き</span>'
+          : rev.reviewStatus === 'reviewed'
+            ? '<span class="badge badge-info">レビュー済</span>'
+            : rev.reviewStatus === 'needs_owner_review'
+              ? '<span class="badge badge-warning">オーナー確認待ち</span>'
+              : `<span class="badge">${rev.reviewStatus}</span>`;
+        const time = new Date(rev.updatedAt).toLocaleString('ja-JP');
+        revHtml += `
+          <a href="/reviews/${rev.id}/columns" class="run-item">
+            <span class="run-mode">${escapeHtml(rev.fileName)}</span>
+            ${statusBadge}
+            <span class="run-files">${rev.reviewer || '—'}</span>
+            <span class="run-time">${time}</span>
+          </a>
+        `;
+      }
+      revHtml += '</div>';
+      revContainer.innerHTML = revHtml;
+    }
+  } catch (err) {
+    document.getElementById('review-step1').innerHTML = `<p class="empty">読み込みに失敗: ${err.message}</p>`;
+  }
+}
+
+// --- Review Step 2: Column review ---
+
+async function renderReviewStep2(reviewId) {
+  app.innerHTML = `${renderStepper(2)}<div class="loading">読み込み中...</div>`;
+
+  try {
+    const review = await api(`/api/reviews/${reviewId}`);
+
+    const decidedCount = review.columns.filter(c => c.decision !== 'unknown' || c.humanSemanticField).length;
+
+    let html = renderStepper(2);
+    html += `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:18px">カラムレビュー — ${escapeHtml(review.fileName)}</h2>
+        <div class="btn-group">
+          <button class="btn" id="btn-save-cols">一時保存</button>
+          <button class="btn btn-primary" id="btn-next-summary">サマリへ進む</button>
+        </div>
+      </div>
+      <div class="review-progress-bar">
+        <span>${decidedCount} / ${review.columns.length} 列回答済み</span>
+        <span class="badge badge-warning">${review.reviewStatus}</span>
+      </div>
+    `;
+
+    // Column cards
+    for (let i = 0; i < review.columns.length; i++) {
+      const col = review.columns[i];
+      const sug = col.suggestion;
+      const confidenceClass = `confidence-${sug.confidence}`;
+
+      html += `
+        <div class="review-col-card" data-idx="${i}">
+          <div class="col-header">
+            <span class="col-name">${escapeHtml(col.sourceColumn)}</span>
+            <span class="col-stats">欠損率: ${(col.missingRate * 100).toFixed(1)}% | ユニーク: ${col.uniqueCount}</span>
+          </div>
+          <div class="sample-values">
+            ${col.sampleValues.map(v => `<span class="sample-chip" title="${escapeHtml(v)}">${escapeHtml(truncate(v, 30))}</span>`).join('')}
+          </div>
+          <div class="suggestion-row">
+            提案: <span class="badge ${confidenceClass}">${sug.confidence}</span>
+            ${escapeHtml(sug.semanticField)} / ${escapeHtml(sug.fieldFamily)} / ${escapeHtml(sug.section)}
+            <span style="color:var(--text-secondary);font-size:11px">— ${escapeHtml(sug.reason)}</span>
+          </div>
+          <div class="input-row">
+            <div>
+              <label>セマンティック名</label>
+              <input type="text" class="rc-semantic" value="${escapeHtml(col.humanSemanticField || sug.semanticField)}" data-idx="${i}">
+            </div>
+            <div>
+              <label>フィールド分類</label>
+              <select class="rc-family" data-idx="${i}">
+                ${selectOptions(FIELD_FAMILIES, col.humanFieldFamily || sug.fieldFamily)}
+              </select>
+            </div>
+            <div>
+              <label>セクション</label>
+              <select class="rc-section" data-idx="${i}">
+                ${selectOptions(SECTIONS, col.humanSection || sug.section)}
+              </select>
+            </div>
+          </div>
+          <div class="decision-row">
+            ${DECISIONS.map(d => `
+              <label>
+                <input type="radio" name="decision-${i}" value="${d.value}" class="rc-decision"
+                  data-idx="${i}" ${col.decision === d.value ? 'checked' : ''}>
+                ${d.label}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    app.innerHTML = html;
+
+    // Gather current state from form
+    function gatherColumnUpdates() {
+      const updates = [];
+      for (let i = 0; i < review.columns.length; i++) {
+        const semantic = document.querySelector(`.rc-semantic[data-idx="${i}"]`).value.trim();
+        const family = document.querySelector(`.rc-family[data-idx="${i}"]`).value;
+        const section = document.querySelector(`.rc-section[data-idx="${i}"]`).value;
+        const decisionEl = document.querySelector(`input.rc-decision[data-idx="${i}"]:checked`);
+        const decision = decisionEl ? decisionEl.value : 'unknown';
+        updates.push({
+          sourceColumn: review.columns[i].sourceColumn,
+          humanSemanticField: semantic,
+          humanFieldFamily: family,
+          humanSection: section,
+          decision,
+        });
+      }
+      return updates;
+    }
+
+    async function saveColumns() {
+      const updates = gatherColumnUpdates();
+      await api(`/api/reviews/${reviewId}/columns`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    }
+
+    document.getElementById('btn-save-cols').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-save-cols');
+      btn.disabled = true;
+      btn.textContent = '保存中...';
+      try {
+        await saveColumns();
+        btn.textContent = '保存しました';
+        setTimeout(() => { btn.textContent = '一時保存'; btn.disabled = false; }, 1500);
+      } catch (err) {
+        btn.textContent = `エラー: ${err.message}`;
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btn-next-summary').addEventListener('click', async () => {
+      try {
+        await saveColumns();
+        navigate(`/reviews/${reviewId}/summary`);
+      } catch (err) {
+        alert('保存に失敗しました: ' + err.message);
+      }
+    });
+
+  } catch (err) {
+    app.innerHTML = `<div class="card"><p class="empty">読み込みに失敗: ${err.message}</p></div>`;
+  }
+}
+
+// --- Review Step 3: Summary / bundle output ---
+
+async function renderReviewStep3(reviewId) {
+  app.innerHTML = `${renderStepper(3)}<div class="loading">読み込み中...</div>`;
+
+  try {
+    const review = await api(`/api/reviews/${reviewId}`);
+
+    const accepted = review.columns.filter(c => c.decision === 'accepted').length;
+    const adjusted = review.columns.filter(c => c.decision === 'adjusted').length;
+    const unknown = review.columns.filter(c => c.decision === 'unknown').length;
+    const unused = review.columns.filter(c => c.decision === 'unused').length;
+    const diffs = review.columns.filter(c =>
+      c.humanSemanticField && c.humanSemanticField !== c.suggestion.semanticField
+    );
+
+    let html = renderStepper(3);
+    html += `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:18px">サマリ確認 — ${escapeHtml(review.fileName)}</h2>
+        <a href="/reviews/${reviewId}/columns" class="btn">カラムレビューに戻る</a>
+      </div>
+
+      <div class="card">
+        <h2>回答サマリ</h2>
+        <div class="stats">
+          <div class="stat"><div class="label">全カラム</div><div class="value">${review.columns.length}</div></div>
+          <div class="stat"><div class="label">承認</div><div class="value">${accepted}</div></div>
+          <div class="stat"><div class="label">修正</div><div class="value">${adjusted}</div></div>
+          <div class="stat"><div class="label">不明</div><div class="value">${unknown}</div></div>
+          <div class="stat"><div class="label">不使用</div><div class="value">${unused}</div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>ファイル情報</h2>
+        <div class="form-group">
+          <label>ファイルタイプ</label>
+          <select id="rs-filetype">
+            <option value="">（未選択）</option>
+            ${selectOptions(FILE_TYPES, review.primaryFileType)}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>混合 Family（該当するものを選択）</label>
+          <div class="chip-group" id="rs-mixed">
+            ${FIELD_FAMILIES.map(f => `
+              <label>
+                <input type="checkbox" value="${f.value}" ${(review.mixedFamilies || []).includes(f.value) ? 'checked' : ''}>
+                ${f.label}
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        <div class="form-group">
+          <label>レビュー担当者</label>
+          <input type="text" id="rs-reviewer" value="${escapeHtml(review.reviewer || '')}" style="max-width:300px">
+        </div>
+        <div class="form-group">
+          <label>メモ（任意）</label>
+          <textarea id="rs-notes" rows="3">${escapeHtml(review.notes || '')}</textarea>
+        </div>
+        <div class="form-group">
+          <label>レビューステータス</label>
+          <select id="rs-status">
+            <option value="draft" ${review.reviewStatus === 'draft' ? 'selected' : ''}>下書き</option>
+            <option value="reviewed" ${review.reviewStatus === 'reviewed' ? 'selected' : ''}>レビュー済み</option>
+            <option value="needs_owner_review" ${review.reviewStatus === 'needs_owner_review' ? 'selected' : ''}>オーナー確認待ち</option>
+          </select>
+        </div>
+      </div>
+    `;
+
+    // Diff table
+    html += `<div class="card"><h2>カラム一覧</h2>`;
+    html += '<div class="table-wrap" style="max-height:500px;overflow:auto">';
+    html += '<table><thead><tr><th>#</th><th>元カラム</th><th>提案</th><th>回答</th><th>Family</th><th>Section</th><th>判定</th></tr></thead><tbody>';
+    review.columns.forEach((col, i) => {
+      const human = col.humanSemanticField || '—';
+      const isOverride = col.humanSemanticField && col.humanSemanticField !== col.suggestion.semanticField;
+      const cls = isOverride ? ' class="diff-row-override"' : '';
+      const family = col.humanFieldFamily || col.suggestion.fieldFamily;
+      const section = col.humanSection || col.suggestion.section;
+      const decLabel = DECISIONS.find(d => d.value === col.decision)?.label || col.decision;
+      html += `<tr${cls}><td>${i + 1}</td><td>${escapeHtml(col.sourceColumn)}</td><td>${escapeHtml(col.suggestion.semanticField)}</td><td>${escapeHtml(human)}</td><td>${escapeHtml(family)}</td><td>${escapeHtml(section)}</td><td>${escapeHtml(decLabel)}</td></tr>`;
+    });
+    html += '</tbody></table></div></div>';
+
+    // Unknown/unused highlight
+    if (unknown > 0 || unused > 0) {
+      html += '<div class="card">';
+      if (unknown > 0) {
+        html += `<h3>不明カラム (${unknown})</h3><ul class="file-list">`;
+        review.columns.filter(c => c.decision === 'unknown').forEach(c => {
+          html += `<li>${escapeHtml(c.sourceColumn)}</li>`;
+        });
+        html += '</ul>';
+      }
+      if (unused > 0) {
+        html += `<h3 style="margin-top:12px">不使用カラム (${unused})</h3><ul class="file-list">`;
+        review.columns.filter(c => c.decision === 'unused').forEach(c => {
+          html += `<li>${escapeHtml(c.sourceColumn)}</li>`;
+        });
+        html += '</ul>';
+      }
+      html += '</div>';
+    }
+
+    // Actions
+    html += `
+      <div class="card">
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="btn btn-primary" id="btn-finalize">バンドル出力</button>
+          <button class="btn" id="btn-save-summary">一時保存</button>
+          <button class="btn btn-danger" id="btn-delete-review">削除</button>
+          <span id="rs-action-status" style="font-size:13px;color:var(--text-secondary);margin-left:8px"></span>
+        </div>
+        <div id="bundle-files" style="margin-top:16px;display:none"></div>
+      </div>
+    `;
+
+    app.innerHTML = html;
+
+    // Gather summary form data
+    function gatherSummary() {
+      const mixedEls = document.querySelectorAll('#rs-mixed input:checked');
+      const mixedFamilies = Array.from(mixedEls).map(el => el.value);
+      return {
+        primaryFileType: document.getElementById('rs-filetype').value || null,
+        mixedFamilies,
+        reviewer: document.getElementById('rs-reviewer').value.trim(),
+        notes: document.getElementById('rs-notes').value.trim(),
+        reviewStatus: document.getElementById('rs-status').value,
+      };
+    }
+
+    async function saveSummary() {
+      await api(`/api/reviews/${reviewId}/summary`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(gatherSummary()),
+      });
+    }
+
+    document.getElementById('btn-save-summary').addEventListener('click', async () => {
+      const status = document.getElementById('rs-action-status');
+      try {
+        await saveSummary();
+        status.textContent = '保存しました';
+        status.style.color = 'var(--success)';
+        setTimeout(() => { status.textContent = ''; }, 2000);
+      } catch (err) {
+        status.textContent = `エラー: ${err.message}`;
+        status.style.color = 'var(--danger)';
+      }
+    });
+
+    document.getElementById('btn-finalize').addEventListener('click', async () => {
+      const btn = document.getElementById('btn-finalize');
+      const status = document.getElementById('rs-action-status');
+      btn.disabled = true;
+      status.textContent = 'バンドル生成中...';
+      status.style.color = 'var(--text-secondary)';
+      try {
+        await saveSummary();
+        const result = await api(`/api/reviews/${reviewId}/finalize`, { method: 'POST' });
+        status.textContent = '保存完了 — レビュー結果は常設PCに自動保存されました';
+        status.style.color = 'var(--success)';
+        // Show files and save location
+        const filesDiv = document.getElementById('bundle-files');
+        filesDiv.style.display = '';
+        let filesHtml = `
+          <div style="background:var(--bg);border:1px solid var(--success);border-radius:var(--radius);padding:12px;margin-bottom:12px">
+            <strong style="color:var(--success)">保存済み</strong>
+            <span style="font-size:12px;color:var(--text-secondary)"> — このレビュー結果は自動保存されました。追加の送信や添付は不要です。</span>
+            ${result.savedTo ? `<br><span style="font-size:11px;color:var(--text-secondary)">保存先: ${escapeHtml(result.savedTo)}</span>` : ''}
+          </div>
+          <h3>出力ファイル</h3>
+          <ul class="file-list">
+            ${result.files.map(f => `<li><a href="/api/reviews/${reviewId}/raw/${f}" target="_blank">${f}</a></li>`).join('')}
+          </ul>
+        `;
+        filesDiv.innerHTML = filesHtml;
+      } catch (err) {
+        status.textContent = `エラー: ${err.message}`;
+        status.style.color = 'var(--danger)';
+        btn.disabled = false;
+      }
+    });
+
+    document.getElementById('btn-delete-review').addEventListener('click', async () => {
+      if (!confirm('このレビューを削除しますか？')) return;
+      try {
+        await api(`/api/reviews/${reviewId}`, { method: 'DELETE' });
+        navigate('/reviews/new');
+      } catch (err) {
+        alert('削除に失敗: ' + err.message);
+      }
+    });
+
+  } catch (err) {
+    app.innerHTML = `<div class="card"><p class="empty">読み込みに失敗: ${err.message}</p></div>`;
+  }
 }
 
 // --- Init ---
