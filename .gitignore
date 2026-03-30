@@ -6,3 +6,4 @@ test/output-*/
 .env
 .DS_Store
 .worktrees/
+_worktrees/
