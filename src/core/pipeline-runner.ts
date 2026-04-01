@@ -18,6 +18,7 @@ import { sourceBatchId, logicalSourceKey } from '../ingest/fingerprint.js';
 import { generateMappingSuggestions } from './column-mapper.js';
 import type { WorkbenchConfig } from '../config/schema.js';
 import type { ReportSummary, ProfileResult, CandidateType, IngestDiagnosis, RunDiff, RunDiffBySource } from '../types/index.js';
+import { buildRunDiffSummaryV1, saveRunDiffSummary } from './run-diff-summary.js';
 
 export type RunMode = 'profile' | 'normalize' | 'detect-duplicates' | 'classify' | 'run-all' | 'run-batch';
 
@@ -39,6 +40,13 @@ export interface RunMeta {
   schemaFingerprints?: Record<string, string>;
   ingestDiagnoses?: Record<string, IngestDiagnosis>;
   previousRunId?: string;
+  // fast path fields
+  usedFastPath?: boolean;
+  fastPathProfileId?: string;
+  skippedColumnReview?: boolean;
+  // run diff fields
+  profileId?: string;
+  inputColumns?: Record<string, string[]>;
 }
 
 function generateRunId(): string {
@@ -90,6 +98,26 @@ export function getRunOutputFiles(outputDir: string, runId: string): string[] {
 
 function saveMeta(meta: RunMeta): void {
   writeFileSync(join(meta.outputDir, 'run-meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+}
+
+/**
+ * 保存済みの run メタデータを部分更新する。
+ * fast path など、実行後に追記したいフィールドに使用する。
+ */
+export function patchRunMeta(
+  outputDir: string,
+  runId: string,
+  patch: Partial<RunMeta>,
+): RunMeta | null {
+  const current = getRun(outputDir, runId);
+  if (!current) return null;
+  const updated = { ...current, ...patch };
+  writeFileSync(
+    join(getRunsBaseDir(outputDir), runId, 'run-meta.json'),
+    JSON.stringify(updated, null, 2),
+    'utf-8',
+  );
+  return updated;
 }
 
 // --- Progress tracking ---
@@ -175,6 +203,8 @@ export async function executeRun(
      * 指定された場合、normalize ステップで config の column mapping より優先して適用される。
      */
     effectiveMapping?: Record<string, string> | null;
+    /** 使用した profile ID（fast-path または column review）。run diff の比較に使用。 */
+    profileId?: string;
   },
 ): Promise<RunMeta> {
   const runId = generateRunId();
@@ -209,6 +239,7 @@ export async function executeRun(
       const sourceFileHashes: Record<string, string> = {};
       const schemaFingerprints: Record<string, string> = {};
       const ingestDiagnoses: Record<string, IngestDiagnosis> = {};
+      const inputColumns: Record<string, string[]> = {};
 
       for (const f of inputFiles) {
         const ir = await ingestFile(f, resolveFileIngestOptions(f, config), 1);
@@ -218,6 +249,7 @@ export async function executeRun(
         sourceFileHashes[f] = ir.sourceFileHash;
         schemaFingerprints[f] = ir.schemaFingerprint;
         ingestDiagnoses[f] = ir.diagnosis;
+        inputColumns[f] = ir.columns;
 
         // Write mapping suggestions
         const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
@@ -246,7 +278,9 @@ export async function executeRun(
       meta.sourceFileHashes = sourceFileHashes;
       meta.schemaFingerprints = schemaFingerprints;
       meta.ingestDiagnoses = ingestDiagnoses;
+      meta.inputColumns = inputColumns;
       meta.previousRunId = prevRunId;
+      if (options?.profileId) meta.profileId = options.profileId;
       saveMeta(meta);
 
       // Build contexts
@@ -305,16 +339,10 @@ export async function executeRun(
         );
       }
 
-      // Write run-diff.json if previousRunId exists
-      if (prevRunId) {
-        const prevMeta = getRun(config.outputDir, prevRunId);
-        if (prevMeta?.summary && meta.summary) {
-          const diff = buildRunDiff(prevMeta, meta, srcKeys.map((k, i) => ({
-            sourceKey: k,
-            filePath: inputFiles[i]!,
-          })));
-          writeFileSync(join(meta.outputDir, 'run-diff.json'), JSON.stringify(diff, null, 2), 'utf-8');
-        }
+      // Write run-diff.json (v1)
+      const diffSummary = buildRunDiffSummaryV1(config.outputDir, meta);
+      if (diffSummary) {
+        saveRunDiffSummary(meta.outputDir, diffSummary);
       }
 
       emitter.emit('complete', meta);

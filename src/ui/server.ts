@@ -12,7 +12,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config/defaults.js';
-import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
+import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter, patchRunMeta } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
 import {
@@ -21,12 +21,14 @@ import {
   buildCandidateProfile, saveCandidateProfile,
 } from '../file-profiles/index.js';
 import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
+import { buildAutoReviews } from '../file-profiles/fast-path.js';
 import {
   buildEffectiveMapping,
   saveEffectiveMapping,
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
+import { buildRunDiffSummaryV1, saveRunDiffSummary } from '../core/run-diff-summary.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -192,6 +194,25 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
     }
+  });
+
+  // --- API: Run diff summary v1 ---
+  app.get('/api/runs/:id/diff', (req, res) => {
+    const run = getRun(baseOutputDir, req.params.id);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const summary = buildRunDiffSummaryV1(baseOutputDir, run);
+    if (!summary) {
+      return res.json({
+        version: 1,
+        currentRunId: run.id,
+        classification: 'no_comparable',
+        classificationLabel: '比較対象なし',
+        generatedAt: new Date().toISOString(),
+      });
+    }
+    saveRunDiffSummary(run.outputDir, summary);
+    res.json(summary);
   });
 
   // --- API: Delete a run ---
@@ -602,7 +623,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         original.inputFiles,
         config,
         configPath,
-        { effectiveMapping: effectiveResult.mapping },
+        { effectiveMapping: effectiveResult.mapping, profileId },
       );
       res.json(meta);
     } catch (err) {
@@ -643,6 +664,69 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       res.json({ id: candidate.id, label: candidate.label, saved: true });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
+    }
+  });
+
+  // --- API: Fast path — known file を列レビューなしで進める ---
+  app.post('/api/runs/:id/fast-path', async (req, res) => {
+    try {
+      const runId = req.params.id;
+      const { profileId, columns } = req.body as { profileId?: string; columns?: string[] };
+
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId が必要です' });
+      }
+
+      const original = getRun(baseOutputDir, runId);
+      if (!original) return res.status(404).json({ error: 'Run が見つかりません' });
+
+      const profile = profileId !== 'new' ? getProfileById(profileId) : null;
+      if (!profile) {
+        return res.status(400).json({ error: 'fast path はプロファイルが必要です' });
+      }
+
+      // profile の列定義から自動レビューを生成（全て inUse=yes）
+      const actualColumns = Array.isArray(columns) ? columns : [];
+      const autoReviews = buildAutoReviews(profile.columns, actualColumns);
+
+      // 列レビューを保存
+      saveColumnReview(baseOutputDir, runId, profileId, autoReviews);
+
+      // 実効 mapping を生成して保存
+      const effectiveResult = buildEffectiveMapping(runId, profileId, autoReviews, profile.columns);
+      saveEffectiveMapping(baseOutputDir, effectiveResult);
+
+      // fast path で進んだことを run meta に記録
+      patchRunMeta(baseOutputDir, runId, {
+        usedFastPath: true,
+        fastPathProfileId: profileId,
+        skippedColumnReview: true,
+      });
+
+      // rerun-with-review と同じロジックで normalize を再実行
+      const configPath = original.configPath || undefined;
+      const config = loadConfig(configPath);
+      config.outputDir = baseOutputDir;
+
+      const meta = await executeRun(
+        'normalize',
+        original.inputFiles,
+        config,
+        configPath,
+        { effectiveMapping: effectiveResult.mapping, profileId },
+      );
+
+      res.json({
+        ok: true,
+        runId: meta.id,
+        effectiveSummary: {
+          activeCount: effectiveResult.activeCount,
+          unusedCount: effectiveResult.unusedCount,
+          pendingCount: effectiveResult.pendingCount,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '実行に失敗しました' });
     }
   });
 

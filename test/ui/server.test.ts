@@ -454,4 +454,155 @@ describe('UI Server API', () => {
       expect(body.saved).toBe(true);
     });
   });
+
+  // ===== fast-path API tests =====
+
+  describe('POST /api/runs/:id/fast-path', () => {
+    it('returns 400 when profileId is missing', async () => {
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const runId = runs[0].id;
+
+      const res = await fetch(`${baseUrl}/api/runs/${runId}/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ columns: [] }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBeTruthy();
+    });
+
+    it('returns 404 when run does not exist', async () => {
+      const res = await fetch(`${baseUrl}/api/runs/nonexistent-run/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'apo-list', columns: [] }),
+      });
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 400 when profileId is "new" (no profile for fast path)', async () => {
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const runId = runs[0].id;
+
+      const res = await fetch(`${baseUrl}/api/runs/${runId}/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'new', columns: [] }),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBeTruthy();
+    });
+
+    it('returns 200 with runId for valid known profile (apo-list)', async () => {
+      // apo-list profile の列定義に合わせた列名（先頭 6 列分）
+      const columns = ['顧客名', '電話番号', 'メールアドレス', '会社名', '住所', '担当者名'];
+
+      // Create a fresh run with APO_LIST
+      const createRes = await fetch(`${baseUrl}/api/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'normalize',
+          filePaths: [APO_LIST],
+          configPath: CONFIG_PATH,
+        }),
+      });
+      expect(createRes.status).toBe(200);
+      const run = await createRes.json();
+      const runId = run.id;
+
+      const res = await fetch(`${baseUrl}/api/runs/${runId}/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'apo-list', columns }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.ok).toBe(true);
+      expect(body.runId).toBeTruthy();
+      expect(body.effectiveSummary).toBeDefined();
+      expect(body.effectiveSummary.activeCount).toBeGreaterThan(0);
+      expect(body.effectiveSummary.pendingCount).toBe(0);
+    });
+
+    it('fast path で進んだ run には usedFastPath フラグが記録される', async () => {
+      const columns = ['顧客名', '電話番号', 'メールアドレス', '会社名', '住所', '担当者名'];
+
+      // Create a fresh run
+      const createRes = await fetch(`${baseUrl}/api/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'normalize',
+          filePaths: [APO_LIST],
+          configPath: CONFIG_PATH,
+        }),
+      });
+      const run = await createRes.json();
+      const runId = run.id;
+
+      await fetch(`${baseUrl}/api/runs/${runId}/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'apo-list', columns }),
+      });
+
+      // 元の run meta に usedFastPath が記録されていること
+      const metaRes = await fetch(`${baseUrl}/api/runs/${runId}`);
+      const meta = await metaRes.json();
+      expect(meta.usedFastPath).toBe(true);
+      expect(meta.fastPathProfileId).toBe('apo-list');
+      expect(meta.skippedColumnReview).toBe(true);
+    });
+
+    it('new file では fast path を使えない（profile が必要）', async () => {
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const runId = runs[0].id;
+
+      const res = await fetch(`${baseUrl}/api/runs/${runId}/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'new', columns: ['列A', '列B'] }),
+      });
+      // new profile は fast path 不可
+      expect(res.status).toBe(400);
+    });
+
+    it('fast path 後も既存の normalize / rerun 導線が動く（fast path run の column-status が存在する）', async () => {
+      const columns = ['顧客名', '電話番号', 'メールアドレス', '会社名', '住所', '担当者名'];
+
+      const createRes = await fetch(`${baseUrl}/api/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'normalize',
+          filePaths: [APO_LIST],
+          configPath: CONFIG_PATH,
+        }),
+      });
+      const run = await createRes.json();
+      const runId = run.id;
+
+      await fetch(`${baseUrl}/api/runs/${runId}/fast-path`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'apo-list', columns }),
+      });
+
+      // column-status が存在することを確認（fast path でも review が保存されている）
+      const statusRes = await fetch(`${baseUrl}/api/runs/${runId}/column-status`);
+      expect(statusRes.status).toBe(200);
+      const statusData = await statusRes.json();
+      expect(statusData.entries.length).toBeGreaterThanOrEqual(1);
+      const entry = statusData.entries.find((e: { profileId: string }) => e.profileId === 'apo-list');
+      expect(entry).toBeDefined();
+      expect(entry.activeCount).toBeGreaterThan(0);
+      expect(entry.pendingCount).toBe(0);
+    });
+  });
 });
