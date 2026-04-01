@@ -102,6 +102,13 @@ export interface NormalizeContext {
   importRunId: string;
   sourceKey: string;
   ingestOptions?: IngestOptions;
+  /**
+   * run 単位の実効 mapping（列レビュー回答から生成）。
+   * 指定された場合は config の columnMappings より優先して適用される。
+   * null = mapping なし（全列をそのまま通す）。
+   * undefined = 未指定（config の findBestMapping にフォールバック）。
+   */
+  effectiveMapping?: Record<string, string> | null;
 }
 
 export interface NormalizeResult {
@@ -137,7 +144,12 @@ export async function normalizeFile(
   const parseQuarantinePath = join(config.outputDir, `parse-quarantine${suffix}.csv`);
 
   const ingestResult = await ingestFile(filePath, context.ingestOptions ?? {}, config.chunkSize);
-  const mapping = findBestMapping(filePath, ingestResult.schemaFingerprint, config);
+  // run 単位の実効 mapping が指定されていればそれを優先する
+  // undefined = 未指定 → config の mapping にフォールバック
+  // null = 明示的に mapping なし
+  const mapping = context.effectiveMapping !== undefined
+    ? context.effectiveMapping
+    : findBestMapping(filePath, ingestResult.schemaFingerprint, config);
 
   let normalizedCount = 0;
   let quarantineCount = 0;
@@ -242,7 +254,9 @@ export async function normalizeFiles(
     const context: NormalizeContext = contexts?.[fileIdx] ?? { sourceBatchId: '', importRunId: '', sourceKey: sourceLabel };
 
     const ingestResult = await ingestFile(filePath, context.ingestOptions ?? {}, config.chunkSize);
-    const mapping = findBestMapping(filePath, ingestResult.schemaFingerprint, config);
+    const mapping = context.effectiveMapping !== undefined
+      ? context.effectiveMapping
+      : findBestMapping(filePath, ingestResult.schemaFingerprint, config);
     lastSchemaFp = ingestResult.schemaFingerprint;
     lastSourceFileHash = ingestResult.sourceFileHash;
 

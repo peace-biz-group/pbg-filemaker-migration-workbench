@@ -77,6 +77,43 @@ describe('buildCandidateProfile', () => {
     const candidate = buildCandidateProfile('run-001', '顧客一覧.csv', sampleEffectiveMapping, {});
     expect(candidate.label).toBe('顧客一覧');
   });
+
+  it('columnCount が em.columns.length と一致する', () => {
+    const candidate = buildCandidateProfile('run-001', 'test.csv', sampleEffectiveMapping, {});
+    // sampleEffectiveMapping.columns.length === 3
+    expect(candidate.columnCount).toBe(3);
+  });
+
+  it('headerlessSuitable を override で指定できる', () => {
+    const candidate = buildCandidateProfile(
+      'run-001',
+      'test.csv',
+      sampleEffectiveMapping,
+      { headerlessSuitable: true },
+    );
+    expect(candidate.headerlessSuitable).toBe(true);
+  });
+
+  it('defaultHasHeader: false のとき headerlessSuitable が自動で true になる', () => {
+    const candidate = buildCandidateProfile(
+      'run-001',
+      'test.csv',
+      sampleEffectiveMapping,
+      { defaultHasHeader: false },
+    );
+    expect(candidate.headerlessSuitable).toBe(true);
+  });
+
+  it('headerlessSuitable: true かつ defaultHasHeader: true は共存できる', () => {
+    const candidate = buildCandidateProfile(
+      'run-001',
+      'test.csv',
+      sampleEffectiveMapping,
+      { headerlessSuitable: true, defaultHasHeader: true },
+    );
+    expect(candidate.headerlessSuitable).toBe(true);
+    expect(candidate.defaultHasHeader).toBe(true);
+  });
 });
 
 describe('isCandidateProfile', () => {

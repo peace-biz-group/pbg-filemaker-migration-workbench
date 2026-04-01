@@ -25,7 +25,7 @@ export function isCandidateProfile(profile: FileProfile): profile is CandidatePr
  * @param runId - 生成元 run ID
  * @param sourceFilename - アップロード元のファイル名（basename のみ）
  * @param em - 保存済み effective mapping
- * @param overrides - UI から渡す上書き値（label, defaultEncoding, defaultHasHeader）
+ * @param overrides - UI から渡す上書き値（label, defaultEncoding, defaultHasHeader, headerlessSuitable）
  */
 export function buildCandidateProfile(
   runId: string,
@@ -35,6 +35,7 @@ export function buildCandidateProfile(
     label?: string;
     defaultEncoding?: 'cp932' | 'utf8' | 'auto';
     defaultHasHeader?: boolean;
+    headerlessSuitable?: boolean;
   },
 ): CandidateProfile {
   const stem = basename(sourceFilename, extname(sourceFilename));
@@ -62,13 +63,23 @@ export function buildCandidateProfile(
     .map(c => c.position);
 
   const label = overrides.label || stem;
+  const resolvedDefaultHasHeader = overrides.defaultHasHeader ?? true;
+
+  // defaultHasHeader: false の場合は headerlessSuitable を自動で true にする
+  // 明示的に指定されている場合はそちらを優先する
+  const resolvedHeaderlessSuitable =
+    overrides.headerlessSuitable !== undefined
+      ? overrides.headerlessSuitable
+      : resolvedDefaultHasHeader === false
+        ? true
+        : undefined;
 
   return {
     id,
     label,
     filenameHints,
     defaultEncoding: overrides.defaultEncoding ?? 'auto',
-    defaultHasHeader: overrides.defaultHasHeader ?? true,
+    defaultHasHeader: resolvedDefaultHasHeader,
     columns,
     previewColumns,
     category: '生成された設定',
@@ -77,6 +88,10 @@ export function buildCandidateProfile(
     generatedFromRunId: runId,
     generatedAt: new Date().toISOString(),
     sourceFilename,
+    // ヘッダーなし CSV とのマッチング精度向上のため列数を記録
+    columnCount: em.columns.length,
+    // ヘッダーなし適合フラグ（undefined の場合は省略）
+    ...(resolvedHeaderlessSuitable !== undefined && { headerlessSuitable: resolvedHeaderlessSuitable }),
   };
 }
 

@@ -191,3 +191,45 @@ export interface TemplateMatchReason {
   description: string;               // Japanese explanation for UI
   contribution: number;              // 0-1 contribution to score
 }
+
+// ============================================================
+// Run Diff Summary v1
+// ============================================================
+
+export type DiffClassification =
+  | 'same_content'       // 前回と同じ内容
+  | 'row_count_changed'  // 件数が変わった
+  | 'schema_changed'     // 列の構成が変わった
+  | 'profile_changed'    // 設定が変わった
+  | 'no_comparable';     // 比較対象なし
+
+export interface RunDiffSummaryV1 {
+  version: 1;
+  previousRunId: string;
+  currentRunId: string;
+  logicalSourceKey: string;
+  totals: {
+    recordCountDelta: number;
+    normalizedCountDelta: number;
+    quarantineCountDelta: number;
+    parseFailDelta: number;
+  };
+  profileId?: string;
+  sameProfile: boolean;
+  sameSchemaFingerprint: boolean;
+  sameRawFingerprint: boolean;
+  sameEffectiveMapping: boolean;
+  rowCountPrev: number;
+  rowCountCurr: number;
+  columnCountPrev: number;
+  columnCountCurr: number;
+  hasHeaderPrev?: boolean;
+  hasHeaderCurr?: boolean;
+  sourceFilenamesPrev: string[];
+  sourceFilenamesCurr: string[];
+  addedColumns: string[];
+  removedColumns: string[];
+  classification: DiffClassification;
+  classificationLabel: string;
+  generatedAt: string;
+}

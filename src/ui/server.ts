@@ -12,7 +12,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config/defaults.js';
-import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
+import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter, patchRunMeta } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
 import {
@@ -21,6 +21,7 @@ import {
   buildCandidateProfile, saveCandidateProfile,
 } from '../file-profiles/index.js';
 import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
+import { buildAutoReviews } from '../file-profiles/fast-path.js';
 import {
   buildEffectiveMapping,
   saveEffectiveMapping,
@@ -198,6 +199,25 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
     }
+  });
+
+  // --- API: Run diff summary v1 ---
+  app.get('/api/runs/:id/diff', (req, res) => {
+    const run = getRun(baseOutputDir, req.params.id);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const summary = buildRunDiffSummaryV1(baseOutputDir, run);
+    if (!summary) {
+      return res.json({
+        version: 1,
+        currentRunId: run.id,
+        classification: 'no_comparable',
+        classificationLabel: '比較対象なし',
+        generatedAt: new Date().toISOString(),
+      });
+    }
+    saveRunDiffSummary(run.outputDir, summary);
+    res.json(summary);
   });
 
   // --- API: Delete a run ---
@@ -452,7 +472,14 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         if (sampleRows.length >= 10) break;
       }
 
-      const profileMatch = matchProfile(uploaded.originalname, ir.columns);
+      // ヘッダーなし CSV かどうかを判定（hasHeader=false で読み込んだ場合）
+      const isHeaderless = ir.diagnosis.headerApplied === false;
+      // 実際の列数（ヘッダーなしでも ingest 後に確定している）
+      const actualColumnCount = ir.columns.length;
+      const profileMatch = matchProfile(uploaded.originalname, ir.columns, {
+        isHeaderless,
+        columnCount: actualColumnCount,
+      });
 
       res.json({
         filename: uploaded.originalname,
@@ -603,7 +630,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         original.inputFiles,
         config,
         configPath,
-        { effectiveMapping: effectiveResult.mapping },
+        { effectiveMapping: effectiveResult.mapping, profileId },
       );
       res.json(meta);
     } catch (err) {
