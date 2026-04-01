@@ -39,6 +39,10 @@ export interface RunMeta {
   schemaFingerprints?: Record<string, string>;
   ingestDiagnoses?: Record<string, IngestDiagnosis>;
   previousRunId?: string;
+  /** confirm 段階で duplicate warning が表示された場合 true */
+  duplicateWarningShown?: boolean;
+  /** duplicate warning を見た上で明示的に override して実行した場合 true */
+  duplicateOverride?: boolean;
 }
 
 function generateRunId(): string {
@@ -168,7 +172,11 @@ export async function executeRun(
   inputFiles: string[],
   config: WorkbenchConfig,
   configPath?: string,
-  options?: { async?: boolean },
+  options?: {
+    async?: boolean;
+    duplicateWarningShown?: boolean;
+    duplicateOverride?: boolean;
+  },
 ): Promise<RunMeta> {
   const runId = generateRunId();
   const runDir = join(getRunsBaseDir(config.outputDir), runId);
@@ -182,6 +190,8 @@ export async function executeRun(
     status: 'running',
     startedAt: new Date().toISOString(),
     outputDir: runDir,
+    ...(options?.duplicateWarningShown ? { duplicateWarningShown: true } : {}),
+    ...(options?.duplicateOverride ? { duplicateOverride: true } : {}),
   };
   saveMeta(meta);
 
