@@ -11,6 +11,11 @@ import {
   loadColumnReview,
   SEED_PROFILES,
 } from '../../src/file-profiles/index.js';
+import {
+  buildCandidateProfile,
+  saveCandidateProfile,
+} from '../../src/file-profiles/candidate-profile.js';
+import type { EffectiveMappingResult } from '../../src/core/effective-mapping.js';
 
 const TMP_DIR = join(import.meta.dirname, '..', 'output-profile-test');
 
@@ -181,5 +186,90 @@ describe('File Profiles', () => {
       const result = loadColumnReview(TMP_DIR, 'nonexistent', 'nonexistent');
       expect(result).toBeNull();
     });
+  });
+});
+
+// ---- candidate profile + headerless matching 統合テスト ----
+
+const INTEGRATION_TMP_DIR = join(import.meta.dirname, '..', 'output-profile-integration-test');
+
+const sampleEM: EffectiveMappingResult = {
+  runId: 'run-headerless-001',
+  profileId: 'call-history',
+  generatedAt: '2026-04-01T00:00:00.000Z',
+  mapping: { '電話番号': 'phone', '会社名': 'company_name' },
+  activeCount: 4,
+  unusedCount: 0,
+  pendingCount: 0,
+  columns: [
+    { position: 0, sourceHeader: '電話番号', canonicalKey: 'phone', label: '電話番号', status: 'active', required: 'yes' },
+    { position: 1, sourceHeader: '会社名', canonicalKey: 'company_name', label: '会社名', status: 'active', required: 'no' },
+    { position: 2, sourceHeader: '日時', canonicalKey: 'call_datetime', label: '日時', status: 'active', required: 'yes' },
+    { position: 3, sourceHeader: '結果', canonicalKey: 'result', label: '結果', status: 'active', required: 'no' },
+  ],
+};
+
+describe('candidate profile + headerless matching 統合', () => {
+  beforeEach(() => {
+    mkdirSync(INTEGRATION_TMP_DIR, { recursive: true });
+    // candidate profile を保存して registry を更新
+    const candidate = buildCandidateProfile(
+      'run-headerless-001',
+      'コール履歴_20260401.csv',
+      sampleEM,
+      { defaultHasHeader: false },
+    );
+    saveCandidateProfile(INTEGRATION_TMP_DIR, candidate);
+    loadProfiles(INTEGRATION_TMP_DIR); // candidate を registry に反映
+  });
+
+  afterAll(() => {
+    if (existsSync(INTEGRATION_TMP_DIR)) rmSync(INTEGRATION_TMP_DIR, { recursive: true, force: true });
+  });
+
+  it('保存済み candidate profile が filename hint で候補に出る（ヘッダーなし CSV）', () => {
+    // 同じファイル名パターンで matchProfile（ヘッダーなし）
+    const result = matchProfile('コール履歴_20260402.csv', [], {
+      isHeaderless: true,
+      columnCount: 4,
+    });
+    expect(result.profile).not.toBeNull();
+    // candidate または call-history が最上位候補
+    const topId = result.profile?.id;
+    const isCallRelated = topId === 'call-history' || topId?.includes('run-headerless-001');
+    expect(isCallRelated).toBe(true);
+    expect(result.confidence).toBe('high');
+  });
+
+  it('ヘッダーなし CSV でも known file 候補が出る（column count のみ）', () => {
+    // ファイル名が全く違っても column count で候補が出る
+    const result = matchProfile('output_20260401.csv', [], {
+      isHeaderless: true,
+      columnCount: 4,
+    });
+    // score > 0 のプロファイルが返るはず（4列一致で +25、headerlessSuitable で +20）
+    expect(result.profile).not.toBeNull();
+    expect(result.confidence).not.toBe('none');
+  });
+
+  it('列数が大きくズレると候補スコアが弱くなる', () => {
+    // 4列プロファイルに対して 10 列ファイルを渡す
+    const result4 = matchProfile('output.csv', [], { isHeaderless: true, columnCount: 4 });
+    const result10 = matchProfile('output.csv', [], { isHeaderless: true, columnCount: 10 });
+    const toScore = (r: typeof result4) =>
+      r.confidence === 'high' ? 3 : r.confidence === 'medium' ? 2 : r.confidence === 'low' ? 1 : 0;
+    // 4列一致の方が同等かそれ以上のスコア
+    expect(toScore(result4)).toBeGreaterThanOrEqual(toScore(result10));
+  });
+
+  it('built-in と candidate が混在しても matchProfile が壊れない', () => {
+    const profiles = getProfiles();
+    const seedCount = profiles.filter(p => !('candidate' in p)).length;
+    const candidateCount = profiles.filter(p => 'candidate' in p && (p as { candidate?: boolean }).candidate === true).length;
+    expect(seedCount).toBeGreaterThan(0);
+    expect(candidateCount).toBeGreaterThan(0);
+
+    // matchProfile が例外なく動作する
+    expect(() => matchProfile('テスト.csv', [], { isHeaderless: true, columnCount: 4 })).not.toThrow();
   });
 });
