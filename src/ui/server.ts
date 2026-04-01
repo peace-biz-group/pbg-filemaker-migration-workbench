@@ -28,7 +28,7 @@ import {
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
-import { buildPreRunDiffPreview } from '../core/pre-run-diff.js';
+import { buildPreRunDiffPreview, buildColumnsDriftContext } from '../core/pre-run-diff.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -695,6 +695,14 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       columnCount,
     });
     res.json(preview);
+  });
+
+  // --- API: Columns drift context (schema drift 後の columns 画面用) ---
+  app.get('/api/runs/:id/drift-context', (req, res) => {
+    const runId = req.params.id;
+    const ctx = buildColumnsDriftContext(baseOutputDir, runId);
+    if (!ctx) return res.json(null);
+    res.json(ctx);
   });
 
   // --- API: List config files ---
