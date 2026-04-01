@@ -370,4 +370,88 @@ describe('UI Server API', () => {
     expect(entry.pendingCount).toBe(0);
     expect(Array.isArray(entry.columns)).toBe(true);
   });
+
+  // ===== save-candidate-profile API tests =====
+
+  describe('POST /api/runs/:id/save-candidate-profile', () => {
+    it('returns 400 when profileId is missing', async () => {
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const runId = runs[0].id;
+
+      const res = await fetch(`${baseUrl}/api/runs/${runId}/save-candidate-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toBeTruthy();
+    });
+
+    it('returns 404 when run does not exist', async () => {
+      const res = await fetch(`${baseUrl}/api/runs/nonexistent-run/save-candidate-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'new' }),
+      });
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBeTruthy();
+    });
+
+    it('returns 404 when effective mapping does not exist for the run', async () => {
+      // Use a fresh run that has no column review saved
+      const createRes = await fetch(`${baseUrl}/api/runs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'profile',
+          filePaths: [APO_LIST],
+          configPath: CONFIG_PATH,
+        }),
+      });
+      const freshRun = await createRes.json();
+
+      const res = await fetch(`${baseUrl}/api/runs/${freshRun.id}/save-candidate-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId: 'new' }),
+      });
+      expect(res.status).toBe(404);
+      const body = await res.json();
+      expect(body.error).toBeTruthy();
+    });
+
+    it('returns 200 with { id, label, saved: true } when run and effective mapping exist', async () => {
+      const runsRes = await fetch(`${baseUrl}/api/runs`);
+      const runs = await runsRes.json();
+      const runId = runs[0].id;
+      const profileId = 'new';
+
+      // Save a column review first (also saves effective mapping)
+      const reviews = [
+        { position: 0, label: '会社名', key: 'company_name', meaning: '会社名', inUse: 'yes', required: 'yes', rule: '' },
+        { position: 1, label: '担当者', key: 'contact', meaning: '担当者', inUse: 'no', required: 'no', rule: '' },
+      ];
+      const saveReviewRes = await fetch(`${baseUrl}/api/column-reviews/${runId}/${profileId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviews }),
+      });
+      expect(saveReviewRes.status).toBe(200);
+
+      // Now save candidate profile
+      const res = await fetch(`${baseUrl}/api/runs/${runId}/save-candidate-profile`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, label: 'テスト顧客マスタ' }),
+      });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.id).toBeTruthy();
+      expect(body.label).toBeTruthy();
+      expect(body.saved).toBe(true);
+    });
+  });
 });
