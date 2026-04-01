@@ -7,7 +7,6 @@
  */
 
 import { basename } from 'node:path';
-import type { RunMeta } from './pipeline-runner.js';
 import { listRuns } from './pipeline-runner.js';
 import { logicalSourceKey } from '../ingest/fingerprint.js';
 
@@ -15,34 +14,45 @@ export type PreRunClassification =
   | 'same_file'       // 前回とほぼ同じです
   | 'row_changed'     // 件数が変わっています
   | 'column_changed'  // 列の形が変わっています
-  | 'first_import'    // 初めての取り込みです
-  | 'no_comparable';  // 比較対象なし（ファイル名ヒントなし等）
+  | 'first_import';   // 初めての取り込みです（comparable なしも含む）
 
 export interface PreRunDiffPreview {
   version: 1;
+  /** 比較対象 run の ID。比較対象なし / 初回の場合は null */
   previousRunId: string | null;
-  profileId: string | null;
+  /** 同じ raw ファイルか（sourceFileHash の一致）。不明なら null */
   sameRawFingerprint: boolean | null;
+  /** 同じスキーマか（schemaFingerprint の一致）。不明なら null */
   sameSchemaFingerprint: boolean | null;
+  /** 前回の列数。不明なら null */
   columnCountPrev: number | null;
+  /** 今回の列数 */
   columnCountCurr: number;
+  /** 列数の差。不明なら null */
   columnCountDelta: number | null;
+  /** 前回の行数。不明なら null */
   rowCountPrev: number | null;
-  hasHeaderPrev: boolean | null;
-  hasHeaderCurr: boolean | null;
+  /** 分類（内部用） */
   classification: PreRunClassification;
+  /** 現場向け日本語ラベル */
   classificationLabel: string;
-  fastPathRecommended: boolean;
-  columnReviewRecommended: boolean;
+  /**
+   * 重複再投入の可能性があるか。
+   * sameRawFingerprint === true のときだけ true になる。
+   * 自動ブロックには使わず、UI での確認促進に使う。
+   */
+  duplicateWarning: boolean;
 }
 
 export interface PreRunInput {
+  /** アップロードされたファイルの名前（basename） */
   filename: string;
+  /** raw ファイルハッシュ（任意） */
   sourceFileHash?: string;
+  /** スキーマフィンガープリント（任意） */
   schemaFingerprint?: string;
+  /** 検出された列数 */
   columnCount: number;
-  hasHeader?: boolean;
-  profileId?: string;
 }
 
 const CLASSIFICATION_LABELS: Record<PreRunClassification, string> = {
@@ -50,7 +60,6 @@ const CLASSIFICATION_LABELS: Record<PreRunClassification, string> = {
   row_changed: '件数が変わっています',
   column_changed: '列の形が変わっています',
   first_import: '初めての取り込みです',
-  no_comparable: '比較対象なし',
 };
 
 function classifyPreRun(opts: {
@@ -66,48 +75,46 @@ function classifyPreRun(opts: {
   return 'row_changed';
 }
 
+/**
+ * 実行前に comparable run を探し、PreRunDiffPreview を生成する。
+ * comparable run が見つからない場合は first_import を返す。
+ */
 export function buildPreRunDiffPreview(
   outputDir: string,
   input: PreRunInput,
 ): PreRunDiffPreview {
   const lsk = logicalSourceKey([basename(input.filename)]);
-  const pid = input.profileId ?? null;
 
-  const allCompleted = listRuns(outputDir).filter(
-    r => r.status === 'completed' && r.logicalSourceKey === lsk,
-  );
+  const allCompleted = listRuns(outputDir)
+    .filter(r => r.status === 'completed' && r.logicalSourceKey === lsk)
+    .sort((a, b) => {
+      const ta = a.completedAt ?? a.startedAt ?? '';
+      const tb = b.completedAt ?? b.startedAt ?? '';
+      return tb.localeCompare(ta);
+    });
 
-  let prevRun: RunMeta | null = null;
-  if (pid) {
-    // profileId 指定あり: 一致する run のみ比較対象にする（異なるプロファイルの run で比較しない）
-    prevRun = allCompleted.find(r => (r.profileId ?? r.fastPathProfileId) === pid) ?? null;
-  } else {
-    // profileId 指定なし: 最新の run を比較対象にする
-    prevRun = allCompleted[0] ?? null;
-  }
+  const prevRun = allCompleted[0] ?? null;
 
   if (!prevRun) {
     return {
       version: 1,
       previousRunId: null,
-      profileId: pid,
       sameRawFingerprint: null,
       sameSchemaFingerprint: null,
       columnCountPrev: null,
       columnCountCurr: input.columnCount,
       columnCountDelta: null,
       rowCountPrev: null,
-      hasHeaderPrev: null,
-      hasHeaderCurr: input.hasHeader ?? null,
       classification: 'first_import',
       classificationLabel: CLASSIFICATION_LABELS['first_import'],
-      fastPathRecommended: false,
-      columnReviewRecommended: false,
+      duplicateWarning: false,
     };
   }
 
   let sameRawFingerprint: boolean | null = null;
   if (input.sourceFileHash && prevRun.sourceFileHashes) {
+    // Note: multi-file runs で異なるファイルのハッシュと一致する可能性があるが、
+    // 現在のワークフローは単一ファイル前提のため許容する
     const prevHashes = Object.values(prevRun.sourceFileHashes);
     sameRawFingerprint = prevHashes.includes(input.sourceFileHash);
   }
@@ -121,12 +128,7 @@ export function buildPreRunDiffPreview(
   const columnCountPrev = prevRun.summary?.columnCount ?? null;
   const columnCountDelta =
     columnCountPrev !== null ? input.columnCount - columnCountPrev : null;
-
   const rowCountPrev = prevRun.summary?.recordCount ?? null;
-
-  const prevDiags = prevRun.ingestDiagnoses ?? {};
-  const firstPrevDiag = Object.values(prevDiags)[0];
-  const hasHeaderPrev = firstPrevDiag?.headerApplied ?? null;
 
   const classification = classifyPreRun({
     hasPrevRun: true,
@@ -135,24 +137,17 @@ export function buildPreRunDiffPreview(
     columnDelta: columnCountDelta,
   });
 
-  const fastPathRecommended = classification === 'same_file' && pid !== null;
-  const columnReviewRecommended = classification === 'column_changed';
-
   return {
     version: 1,
     previousRunId: prevRun.id,
-    profileId: pid,
     sameRawFingerprint,
     sameSchemaFingerprint,
     columnCountPrev,
     columnCountCurr: input.columnCount,
     columnCountDelta,
     rowCountPrev,
-    hasHeaderPrev,
-    hasHeaderCurr: input.hasHeader ?? null,
     classification,
     classificationLabel: CLASSIFICATION_LABELS[classification],
-    fastPathRecommended,
-    columnReviewRecommended,
+    duplicateWarning: sameRawFingerprint === true,
   };
 }
