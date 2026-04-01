@@ -1824,6 +1824,12 @@ async function renderColumnReview(runId) {
     } catch { /* ignore */ }
   }
 
+  // Load drift context（schema drift 後の差分表示用）
+  let driftCtx = null;
+  try {
+    driftCtx = await api(`/api/runs/${runId}/drift-context`);
+  } catch { /* ignore */ }
+
   // columns が結局空 → 案内して終了
   if (columns.length === 0 && !existingReview) {
     app.innerHTML = `
@@ -1861,6 +1867,28 @@ async function renderColumnReview(runId) {
   });
 
   const isResume = !hasPending && existingReview;
+
+  // Drift サマリ HTML（addedColumns や removedColumns があるときだけ表示）
+  let driftSummaryHtml = '';
+  if (driftCtx && (driftCtx.addedColumns.length > 0 || driftCtx.removedColumns.length > 0 || driftCtx.schemaDriftWarningShown)) {
+    const addedList = driftCtx.addedColumns.length > 0
+      ? `<p style="margin:4px 0;font-size:13px">増えた列: ${driftCtx.addedColumns.map(c => `<strong>${escapeHtml(c)}</strong>`).join('、')}</p>`
+      : '';
+    const removedList = driftCtx.removedColumns.length > 0
+      ? `<p style="margin:4px 0;font-size:13px">なくなった列: ${driftCtx.removedColumns.map(c => `<strong>${escapeHtml(c)}</strong>`).join('、')}</p>`
+      : '';
+    const prevRunLink = `<p style="margin:8px 0 0 0;font-size:12px"><a href="/runs/${escapeHtml(driftCtx.previousRunId)}" style="color:var(--text-secondary)">前回の結果を見る</a></p>`;
+
+    driftSummaryHtml = `
+      <div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:12px 14px;margin-bottom:12px">
+        <p style="font-weight:600;font-size:13px;margin:0 0 6px 0">前回と列の形が変わっています。新しい列を先に確認してください。</p>
+        ${addedList}
+        ${removedList}
+        ${prevRunLink}
+      </div>
+    `;
+  }
+
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="font-size:18px">列の確認</h2>
@@ -1871,6 +1899,7 @@ async function renderColumnReview(runId) {
     </div>
 
     <div class="card">
+      ${driftSummaryHtml}
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
         ${profile ? `「<strong>${escapeHtml(profile.label)}</strong>」の列を確認してください。` : '各列の意味を教えてください。'}
         ${profile?.provisional ? '<span class="badge badge-warning">仮の定義です — 確認をお願いします</span>' : ''}
@@ -1882,11 +1911,13 @@ async function renderColumnReview(runId) {
   `;
 
   for (const entry of entries) {
+    const isNewCol = driftCtx?.addedColumns?.includes(entry.headerName) ?? false;
     html += `
       <div class="column-review-item" data-position="${entry.position}">
         <div class="column-review-header">
           <span class="badge badge-info">${entry.position + 1}列目</span>
           <strong>${escapeHtml(entry.headerName)}</strong>
+          ${isNewCol ? '<span class="badge badge-warning" style="margin-left:4px">新しい列</span>' : ''}
           ${entry.profileLabel ? `<span style="font-size:12px;color:var(--text-secondary)">（候補: ${escapeHtml(entry.profileLabel)}）</span>` : ''}
         </div>
 
