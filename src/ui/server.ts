@@ -9,6 +9,7 @@ import express from 'express';
 import multer from 'multer';
 import { resolve, join, extname } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config/defaults.js';
 import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
@@ -23,7 +24,7 @@ import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
 
-export function createApp(baseOutputDir: string) {
+export function createApp(baseOutputDir: string, bundleDir?: string) {
   const app = express();
   app.use(express.json());
 
@@ -377,6 +378,22 @@ export function createApp(baseOutputDir: string) {
 
       const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
 
+      // Header detection: analyze first sample row as potential header
+      const firstDataRow = sampleRows[0] ? Object.values(sampleRows[0]) : [];
+      const headerDetection = detectHeaderLikelihood(firstDataRow);
+
+      // Mojibake scan
+      const mojibakeScan = scanForMojibake(sampleRows, 20);
+
+      // File size
+      let fileSize: number | null = null;
+      try {
+        const stats = await stat(file);
+        fileSize = stats.size;
+      } catch {
+        // ignore
+      }
+
       res.json({
         file,
         diagnosis: ir.diagnosis,
@@ -386,6 +403,9 @@ export function createApp(baseOutputDir: string) {
         sampleRows,
         parseFailures: ir.parseFailures,
         mappingSuggestions: suggestions.suggestions,
+        headerDetection,
+        mojibakeScan,
+        fileSize,
       });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Preview failed' });
@@ -511,13 +531,21 @@ export function createApp(baseOutputDir: string) {
 
 // Start server when run directly
 const port = parseInt(process.env.PORT ?? '3456', 10);
+const host = process.env.HOST ?? '0.0.0.0';
 const outputDir = process.env.OUTPUT_DIR ?? './output';
+const bundleDir = process.env.BUNDLE_DIR || undefined;
 mkdirSync(outputDir, { recursive: true });
 
-const app = createApp(resolve(outputDir));
-app.listen(port, () => {
+const app = createApp(resolve(outputDir), bundleDir ? resolve(bundleDir) : undefined);
+app.listen(port, host, () => {
+  const lanNote = host === '0.0.0.0'
+    ? '  LAN: http://<このPCのIPアドレス>:' + port
+    : '';
   console.log(`\n  FileMaker Data Workbench UI`);
-  console.log(`  http://localhost:${port}\n`);
-  console.log(`  Output: ${resolve(outputDir)}`);
+  console.log(`  Local: http://localhost:${port}`);
+  if (lanNote) console.log(lanNote);
+  console.log(`\n  Output:  ${resolve(outputDir)}`);
+  if (bundleDir) console.log(`  Bundles: ${resolve(bundleDir)}`);
+  else console.log(`  Bundles: ${resolve(outputDir)}/review-bundles`);
   console.log(`  Press Ctrl+C to stop\n`);
 });
