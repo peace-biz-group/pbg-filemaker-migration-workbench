@@ -28,7 +28,6 @@ import {
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
-import { buildRunDiffSummaryV1, saveRunDiffSummary } from '../core/run-diff-summary.js';
 import { buildPreRunDiffPreview } from '../core/pre-run-diff.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -190,7 +189,12 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         }
       }
 
-      const meta = await executeRun(mode, inputFiles, config, configPath);
+      const dupWarningShown = req.body.duplicateWarningShown === 'true' || req.body.duplicateWarningShown === true;
+      const dupOverride = req.body.duplicateOverride === 'true' || req.body.duplicateOverride === true;
+      const meta = await executeRun(mode, inputFiles, config, configPath, {
+        ...(dupWarningShown ? { duplicateWarningShown: true } : {}),
+        ...(dupOverride ? { duplicateOverride: true } : {}),
+      });
       res.json(meta);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
@@ -670,88 +674,21 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     }
   });
 
-  // --- API: Fast path — known file を列レビューなしで進める ---
-  app.post('/api/runs/:id/fast-path', async (req, res) => {
-    try {
-      const runId = req.params.id;
-      const { profileId, columns } = req.body as { profileId?: string; columns?: string[] };
-
-      if (!profileId) {
-        return res.status(400).json({ error: 'profileId が必要です' });
-      }
-
-      const original = getRun(baseOutputDir, runId);
-      if (!original) return res.status(404).json({ error: 'Run が見つかりません' });
-
-      const profile = profileId !== 'new' ? getProfileById(profileId) : null;
-      if (!profile) {
-        return res.status(400).json({ error: 'fast path はプロファイルが必要です' });
-      }
-
-      // profile の列定義から自動レビューを生成（全て inUse=yes）
-      const actualColumns = Array.isArray(columns) ? columns : [];
-      const autoReviews = buildAutoReviews(profile.columns, actualColumns);
-
-      // 列レビューを保存
-      saveColumnReview(baseOutputDir, runId, profileId, autoReviews);
-
-      // 実効 mapping を生成して保存
-      const effectiveResult = buildEffectiveMapping(runId, profileId, autoReviews, profile.columns);
-      saveEffectiveMapping(baseOutputDir, effectiveResult);
-
-      // fast path で進んだことを run meta に記録
-      patchRunMeta(baseOutputDir, runId, {
-        usedFastPath: true,
-        fastPathProfileId: profileId,
-        skippedColumnReview: true,
-      });
-
-      // rerun-with-review と同じロジックで normalize を再実行
-      const configPath = original.configPath || undefined;
-      const config = loadConfig(configPath);
-      config.outputDir = baseOutputDir;
-
-      const meta = await executeRun(
-        'normalize',
-        original.inputFiles,
-        config,
-        configPath,
-        { effectiveMapping: effectiveResult.mapping, profileId },
-      );
-
-      res.json({
-        ok: true,
-        runId: meta.id,
-        effectiveSummary: {
-          activeCount: effectiveResult.activeCount,
-          unusedCount: effectiveResult.unusedCount,
-          pendingCount: effectiveResult.pendingCount,
-        },
-      });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : '実行に失敗しました' });
-    }
-  });
-
   // --- API: Pre-run diff preview (confirm 段階で実行前に比較) ---
   app.get('/api/pre-run-preview', (req, res) => {
     const filename = String(req.query.filename ?? '');
     if (!filename) {
       return res.status(400).json({ error: 'filename は必須です' });
     }
-    const profileId = req.query.profileId ? String(req.query.profileId) : undefined;
     const sourceFileHash = req.query.sourceFileHash ? String(req.query.sourceFileHash) : undefined;
     const schemaFingerprint = req.query.schemaFingerprint ? String(req.query.schemaFingerprint) : undefined;
-    const columnCount = req.query.columnCount ? parseInt(String(req.query.columnCount), 10) : 0;
-    const hasHeader = req.query.hasHeader !== undefined ? req.query.hasHeader !== 'false' : undefined;
+    const columnCount = req.query.columnCount ? (parseInt(String(req.query.columnCount), 10) || 0) : 0;
 
     const preview = buildPreRunDiffPreview(baseOutputDir, {
       filename,
       sourceFileHash,
       schemaFingerprint,
       columnCount,
-      hasHeader,
-      profileId,
     });
     res.json(preview);
   });
