@@ -56,6 +56,17 @@ export interface FileProfile {
   category: string;
   /** 仮置きフラグ — true なら seed データで未確認 */
   provisional: boolean;
+  /**
+   * このプロファイルが想定する列数。
+   * 未設定の場合は columns.length を参照する。
+   * ヘッダーなし CSV とのマッチング精度向上に使う。
+   */
+  columnCount?: number;
+  /**
+   * ヘッダーなし CSV に適しているか。
+   * true のときはヘッダーなしファイルとのマッチスコアにボーナスを加算する。
+   */
+  headerlessSuitable?: boolean;
 }
 
 /**
