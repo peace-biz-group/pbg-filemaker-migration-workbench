@@ -789,6 +789,9 @@ async function renderRunDetail(runId) {
 
     app.innerHTML = html;
 
+    // 列確認カードを非同期でロード
+    loadColumnStatusCard(runId);
+
     // Delete button
     document.getElementById('btn-delete').addEventListener('click', async () => {
       if (!confirm('この Run を削除しますか？')) return;
@@ -800,23 +803,9 @@ async function renderRunDetail(runId) {
       }
     });
 
-    // Start review from run
-    document.getElementById('btn-start-review-from-run').addEventListener('click', async () => {
-      const btn = document.getElementById('btn-start-review-from-run');
-      btn.disabled = true;
-      btn.textContent = '作成中...';
-      try {
-        const review = await api('/api/reviews', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ runId }),
-        });
-        navigate(`/reviews/${review.id}/columns`);
-      } catch (err) {
-        alert('レビュー作成に失敗: ' + err.message);
-        btn.disabled = false;
-        btn.textContent = '列レビュー';
-      }
+    // Start column review from run detail
+    document.getElementById('btn-start-review-from-run').addEventListener('click', () => {
+      navigate(`/runs/${runId}/columns`);
     });
 
     // Rerun button
@@ -855,6 +844,41 @@ async function renderRunDetail(runId) {
   } catch (err) {
     app.innerHTML = `<div class="card"><p class="empty">読み込みに失敗しました: ${err.message}</p></div>`;
   }
+}
+
+// --- Column status card (run detail) ---
+
+async function loadColumnStatusCard(runId) {
+  try {
+    const status = await api(`/api/runs/${runId}/column-status`);
+    if (!status.entries || status.entries.length === 0) return;
+
+    const entry = status.entries[0];
+    const cardHtml = `
+      <div class="card" id="column-status-card">
+        <h2>列の確認状況</h2>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+          ファイル種別: <strong>${escapeHtml(entry.profileName)}</strong>
+        </p>
+        <div class="stats" style="margin-bottom:12px">
+          <div class="stat"><div class="label">使う列</div><div class="value">${entry.activeCount}</div></div>
+          <div class="stat"><div class="label">使わない列</div><div class="value">${entry.unusedCount}</div></div>
+          <div class="stat"><div class="label">まだ決まっていない列</div><div class="value">${entry.pendingCount}</div></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="/runs/${escapeHtml(runId)}/columns" class="btn btn-primary">列の確認を再開</a>
+        </div>
+        <p style="font-size:11px;color:var(--text-secondary);margin-top:8px">
+          この内容はあとから続けられます
+        </p>
+      </div>
+    `;
+    // サマリカードの直後に挿入
+    const summaryCard = app.querySelector('.card');
+    if (summaryCard) {
+      summaryCard.insertAdjacentHTML('afterend', cardHtml);
+    }
+  } catch { /* ignore — column status is optional */ }
 }
 
 // --- Tab content loading ---
