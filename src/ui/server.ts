@@ -14,6 +14,11 @@ import { loadConfig } from '../config/defaults.js';
 import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
+import {
+  loadProfiles, getProfiles, getProfileById, matchProfile,
+  saveProfiles, saveColumnReview, loadColumnReview,
+} from '../file-profiles/index.js';
+import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -21,6 +26,9 @@ const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'cl
 export function createApp(baseOutputDir: string) {
   const app = express();
   app.use(express.json());
+
+  // Load file profiles on startup
+  loadProfiles(baseOutputDir);
 
   // Static files
   app.use('/static', express.static(join(__dirname, 'public')));
@@ -32,7 +40,7 @@ export function createApp(baseOutputDir: string) {
 
   // --- Pages (serve index.html for all page routes) ---
   const indexHtml = join(__dirname, 'public', 'index.html');
-  for (const route of ['/', '/new', '/runs/:id']) {
+  for (const route of ['/', '/new', '/confirm', '/runs/:id', '/runs/:id/columns']) {
     app.get(route, (_req, res) => {
       res.sendFile(indexHtml);
     });
@@ -382,6 +390,109 @@ export function createApp(baseOutputDir: string) {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Preview failed' });
     }
+  });
+
+  // --- API: Upload and identify file (profile matching) ---
+  app.post('/api/upload-identify', upload.single('file'), async (req, res) => {
+    try {
+      const uploaded = req.file as Express.Multer.File | undefined;
+      if (!uploaded) {
+        return res.status(400).json({ error: 'ファイルが指定されていません' });
+      }
+
+      const { renameSync } = await import('node:fs');
+      const dest = join(uploadDir, uploaded.originalname);
+      renameSync(uploaded.path, dest);
+
+      // Parse optional encoding/hasHeader overrides
+      const encoding = (req.body.encoding as IngestOptions['encoding']) ?? 'auto';
+      const hasHeader = req.body.hasHeader !== 'false';
+
+      const { ingestFile } = await import('../io/file-reader.js');
+      const ir = await ingestFile(dest, { encoding, hasHeader, previewRows: 10 }, 5000);
+      const sampleRows: Record<string, string>[] = [];
+      for await (const chunk of ir.records) {
+        for (const row of chunk) {
+          sampleRows.push(row);
+          if (sampleRows.length >= 10) break;
+        }
+        if (sampleRows.length >= 10) break;
+      }
+
+      const profileMatch = matchProfile(uploaded.originalname, ir.columns);
+
+      res.json({
+        filename: uploaded.originalname,
+        filePath: dest,
+        diagnosis: {
+          detectedEncoding: ir.diagnosis.format === 'csv' ? ir.diagnosis.detectedEncoding : 'xlsx',
+          appliedEncoding: ir.diagnosis.format === 'csv' ? ir.diagnosis.appliedEncoding : 'xlsx',
+          headerApplied: ir.diagnosis.headerApplied,
+          format: ir.diagnosis.format,
+        },
+        previewRows: sampleRows,
+        columns: ir.columns,
+        profileMatch,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'ファイルの読み取りに失敗しました' });
+    }
+  });
+
+  // --- API: List all file profiles ---
+  app.get('/api/profiles', (_req, res) => {
+    res.json(getProfiles());
+  });
+
+  // --- API: Get single profile ---
+  app.get('/api/profiles/:id', (req, res) => {
+    const profile = getProfileById(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'プロファイルが見つかりません' });
+    res.json(profile);
+  });
+
+  // --- API: Save/update a profile ---
+  app.post('/api/profiles', (req, res) => {
+    try {
+      const profile = req.body as FileProfile;
+      if (!profile.id || !profile.label) {
+        return res.status(400).json({ error: 'id と label は必須です' });
+      }
+      const profiles = getProfiles();
+      const idx = profiles.findIndex(p => p.id === profile.id);
+      if (idx >= 0) {
+        profiles[idx] = profile;
+      } else {
+        profiles.push(profile);
+      }
+      saveProfiles(baseOutputDir, profiles);
+      res.json({ ok: true, profile });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
+    }
+  });
+
+  // --- API: Save column review ---
+  app.post('/api/column-reviews/:runId/:profileId', (req, res) => {
+    try {
+      const { runId, profileId } = req.params;
+      const reviews = req.body.reviews as ColumnReviewEntry[];
+      if (!Array.isArray(reviews)) {
+        return res.status(400).json({ error: 'reviews は配列で指定してください' });
+      }
+      saveColumnReview(baseOutputDir, runId, profileId, reviews);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
+    }
+  });
+
+  // --- API: Load column review ---
+  app.get('/api/column-reviews/:runId/:profileId', (req, res) => {
+    const { runId, profileId } = req.params;
+    const reviews = loadColumnReview(baseOutputDir, runId, profileId);
+    if (!reviews) return res.json({ reviews: null });
+    res.json({ reviews });
   });
 
   // --- API: List config files ---

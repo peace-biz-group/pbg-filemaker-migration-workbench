@@ -26,10 +26,16 @@ document.addEventListener('click', (e) => {
 function route() {
   const path = location.pathname;
   if (path === '/new') return renderNewRun();
+  if (path === '/confirm') return renderConfirmPage();
+  const colMatch = path.match(/^\/runs\/(.+)\/columns$/);
+  if (colMatch) return renderColumnReview(colMatch[1]);
   const runMatch = path.match(/^\/runs\/(.+)$/);
   if (runMatch) return renderRunDetail(runMatch[1]);
   return renderDashboard();
 }
+
+// --- Shared state for upload → confirm flow ---
+let pendingConfirmation = null; // set by upload-identify response
 
 // --- API helpers ---
 
@@ -176,8 +182,9 @@ async function renderNewRun() {
         </div>
 
         <div style="display:flex;gap:8px;align-items:center">
-          <button type="submit" class="btn btn-primary" id="run-submit">実行</button>
-          <button type="button" class="btn" id="preview-btn">Preview</button>
+          <button type="button" class="btn btn-primary" id="confirm-btn">ファイルを確認</button>
+          <button type="submit" class="btn" id="run-submit">確認せず実行</button>
+          <button type="button" class="btn" id="preview-btn">プレビュー</button>
           <span id="run-status" style="font-size:13px;color:var(--text-secondary)"></span>
         </div>
       </form>
@@ -278,6 +285,91 @@ async function renderNewRun() {
         showPreviewModal(data);
       } catch (err) {
         alert('Preview 失敗: ' + err.message);
+      }
+    });
+  }
+
+  // Confirm button handler — upload & identify file, then show confirm page
+  const confirmBtn = $('#confirm-btn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      const form = $('#run-form');
+      const status = $('#run-status');
+
+      if (uploadedFiles.length === 0) {
+        const filePaths = form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean);
+        if (filePaths.length === 0) {
+          alert('ファイルを選択してください');
+          return;
+        }
+        // For local path files, use the preview API to identify
+        try {
+          status.textContent = 'ファイルを確認中...';
+          const enc = form.encoding.value;
+          const data = await api(`/api/preview?file=${encodeURIComponent(filePaths[0])}&encoding=${enc}&rows=10`);
+          const profileMatch = await api(`/api/profiles`).then(profiles => {
+            // Do client-side matching by calling identify endpoint
+            return null;
+          }).catch(() => null);
+
+          // Simulate upload-identify response
+          pendingConfirmation = {
+            filename: filePaths[0].split('/').pop(),
+            filePath: filePaths[0],
+            diagnosis: data.diagnosis || {},
+            previewRows: data.sampleRows || [],
+            columns: data.columns || [],
+            profileMatch: { profile: null, confidence: 'none', reason: '', alternatives: [] },
+            formState: {
+              mode: form.mode.value,
+              configPath: form.configPath.value,
+              encoding: form.encoding.value,
+              delimiter: form.delimiter.value,
+              hasHeader: form.hasHeader.checked,
+              filePathsText: filePaths,
+            },
+          };
+          status.textContent = '';
+          navigate('/confirm');
+        } catch (err) {
+          status.textContent = 'エラー: ' + err.message;
+          status.style.color = 'var(--danger)';
+        }
+        return;
+      }
+
+      // Upload file and identify
+      try {
+        status.textContent = 'ファイルを確認中...';
+        const formData = new FormData();
+        formData.append('file', uploadedFiles[0]);
+        formData.append('encoding', form.encoding.value);
+        formData.append('hasHeader', form.hasHeader.checked ? 'true' : 'false');
+
+        const res = await fetch('/api/upload-identify', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        pendingConfirmation = {
+          ...data,
+          formState: {
+            mode: form.mode.value,
+            configPath: form.configPath.value,
+            encoding: form.encoding.value,
+            delimiter: form.delimiter.value,
+            hasHeader: form.hasHeader.checked,
+            filePathsText: form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean),
+            uploadedFiles: uploadedFiles.slice(),
+          },
+        };
+        status.textContent = '';
+        navigate('/confirm');
+      } catch (err) {
+        status.textContent = 'エラー: ' + err.message;
+        status.style.color = 'var(--danger)';
       }
     });
   }
@@ -742,6 +834,489 @@ function escapeHtml(str) {
 function truncate(str, maxLen) {
   if (!str || str.length <= maxLen) return str || '';
   return str.slice(0, maxLen - 3) + '...';
+}
+
+// --- Confirm Page (upload → identify → confirm) ---
+
+async function renderConfirmPage() {
+  if (!pendingConfirmation) {
+    navigate('/new');
+    return;
+  }
+
+  const data = pendingConfirmation;
+  const pm = data.profileMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
+  const diag = data.diagnosis || {};
+
+  // Determine encoding display
+  const encodingDisplay = diag.format === 'csv'
+    ? `${diag.detectedEncoding || '不明'} → ${diag.appliedEncoding || '不明'}`
+    : 'XLSX';
+
+  // Check for potential mojibake in preview
+  const hasMojibake = data.previewRows && data.previewRows.length > 0 &&
+    JSON.stringify(data.previewRows).includes('\\ufffd');
+
+  // Load all profiles for alternative selection
+  let allProfiles = [];
+  try { allProfiles = await api('/api/profiles'); } catch { /* ignore */ }
+
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px">ファイルの確認</h2>
+      <a href="/new" class="btn">戻る</a>
+    </div>
+
+    <div class="card">
+      <h2>このファイルは何の一覧ですか？</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+        ファイル名: <strong>${escapeHtml(data.filename)}</strong>
+      </p>
+  `;
+
+  // Profile match result
+  if (pm.profile) {
+    const provLabel = pm.profile.provisional ? ' <span class="badge badge-warning">仮</span>' : '';
+    html += `
+      <div class="confirm-choice-card selected" id="choice-known">
+        <div class="confirm-choice-header">
+          <input type="radio" name="file-type-choice" value="known" checked>
+          <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}
+          <span class="badge badge-info">${escapeHtml(pm.reason)}</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
+          分類: ${escapeHtml(pm.profile.category)} ｜ 列数: ${pm.profile.columns.length}
+        </p>
+      </div>
+    `;
+  }
+
+  // Alternatives
+  if (pm.alternatives && pm.alternatives.length > 0) {
+    html += `<div class="confirm-choice-card" id="choice-alt">
+      <div class="confirm-choice-header">
+        <input type="radio" name="file-type-choice" value="alt">
+        <strong>別の種別を選ぶ</strong>
+      </div>
+      <div class="confirm-alt-list" style="margin:8px 0 0 24px;display:none">
+        <select id="alt-profile-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+          ${pm.alternatives.map(a =>
+            `<option value="${escapeHtml(a.profile.id)}">${escapeHtml(a.profile.label)} (${escapeHtml(a.reason)})</option>`
+          ).join('')}
+          ${allProfiles.filter(p => p.id !== pm.profile?.id && !pm.alternatives.some(a => a.profile.id === p.id)).map(p =>
+            `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`
+          ).join('')}
+        </select>
+      </div>
+    </div>`;
+  } else if (allProfiles.length > 0) {
+    html += `<div class="confirm-choice-card" id="choice-alt">
+      <div class="confirm-choice-header">
+        <input type="radio" name="file-type-choice" value="alt" ${!pm.profile ? 'checked' : ''}>
+        <strong>既存の種別から選ぶ</strong>
+      </div>
+      <div class="confirm-alt-list" style="margin:8px 0 0 24px;${pm.profile ? 'display:none' : ''}">
+        <select id="alt-profile-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+          ${allProfiles.map(p =>
+            `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)} (${escapeHtml(p.category)})</option>`
+          ).join('')}
+        </select>
+      </div>
+    </div>`;
+  }
+
+  // New file option
+  html += `
+    <div class="confirm-choice-card" id="choice-new">
+      <div class="confirm-choice-header">
+        <input type="radio" name="file-type-choice" value="new" ${!pm.profile && allProfiles.length === 0 ? 'checked' : ''}>
+        <strong>新しいファイルとして扱う</strong>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
+        列ごとの意味を入力して、新しいファイル種別を作ります
+      </p>
+    </div>
+  </div>
+  `;
+
+  // Header check
+  html += `
+    <div class="card">
+      <h2>1行目は見出しですか？</h2>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+        データの1行目を確認してください。列の名前（見出し）が入っていれば「はい」を選んでください。
+      </p>
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="has-header" value="true" ${diag.headerApplied !== false ? 'checked' : ''}> はい（見出しあり）
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="has-header" value="false" ${diag.headerApplied === false ? 'checked' : ''}> いいえ（データのみ）
+        </label>
+      </div>
+      ${data.columns && data.columns.length > 0 ? `
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">検出された見出し:</p>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+          ${data.columns.map(c => `<span class="badge badge-info">${escapeHtml(c)}</span>`).join('')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  // Encoding / mojibake check
+  html += `
+    <div class="card">
+      <h2>文字化けしていませんか？</h2>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+        文字コード: ${escapeHtml(encodingDisplay)}
+      </p>
+      ${hasMojibake ? `
+        <div style="padding:8px 12px;background:#fee2e2;border-radius:4px;margin-bottom:8px;font-size:13px;color:var(--danger)">
+          文字化けの可能性があります。文字コードを変更して再試行してください。
+        </div>
+      ` : `
+        <div style="padding:8px 12px;background:#dcfce7;border-radius:4px;margin-bottom:8px;font-size:13px;color:var(--success)">
+          正常に読み取れています
+        </div>
+      `}
+  `;
+
+  // Preview table
+  if (data.previewRows && data.previewRows.length > 0 && data.columns) {
+    html += `
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">先頭 ${data.previewRows.length} 件のプレビュー:</p>
+      ${renderDataTable(data.columns, data.previewRows)}
+    `;
+  }
+
+  html += `
+      <div style="margin-top:12px">
+        <label style="font-size:13px;font-weight:600;color:var(--text-secondary)">文字コードを変更して再読み込み</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <select id="retry-encoding" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+            <option value="auto">自動検出</option>
+            <option value="cp932" ${(diag.appliedEncoding === 'cp932') ? 'selected' : ''}>Shift-JIS (CP932)</option>
+            <option value="utf8" ${(diag.appliedEncoding === 'utf8') ? 'selected' : ''}>UTF-8</option>
+          </select>
+          <button type="button" class="btn" id="retry-encoding-btn">再読み込み</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Action buttons
+  html += `
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
+      <a href="/new" class="btn">戻る</a>
+    </div>
+  `;
+
+  app.innerHTML = html;
+
+  // Wire up radio button interactions
+  document.querySelectorAll('input[name="file-type-choice"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.confirm-choice-card').forEach(c => c.classList.remove('selected'));
+      radio.closest('.confirm-choice-card').classList.add('selected');
+      // Show/hide alt selection
+      const altList = document.querySelector('.confirm-alt-list');
+      if (altList) altList.style.display = radio.value === 'alt' ? '' : 'none';
+    });
+  });
+
+  // Retry encoding button
+  const retryBtn = document.getElementById('retry-encoding-btn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', async () => {
+      const enc = document.getElementById('retry-encoding').value;
+      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+      try {
+        if (data.filePath) {
+          const newData = await api(`/api/preview?file=${encodeURIComponent(data.filePath)}&encoding=${enc}&hasHeader=${hasHeader}&rows=10`);
+          pendingConfirmation = {
+            ...data,
+            diagnosis: newData.diagnosis || data.diagnosis,
+            previewRows: newData.sampleRows || [],
+            columns: newData.columns || [],
+            profileMatch: matchProfileClient(data.filename, newData.columns || [], pendingConfirmation.profileMatch),
+          };
+        } else {
+          // Re-upload for uploaded files
+          const formData = new FormData();
+          formData.append('file', data.formState.uploadedFiles?.[0] || uploadedFiles[0]);
+          formData.append('encoding', enc);
+          formData.append('hasHeader', hasHeader ? 'true' : 'false');
+          const res = await fetch('/api/upload-identify', { method: 'POST', body: formData });
+          const newData = await res.json();
+          pendingConfirmation = {
+            ...newData,
+            formState: data.formState,
+          };
+        }
+        renderConfirmPage();
+      } catch (err) {
+        alert('再読み込みに失敗しました: ' + err.message);
+      }
+    });
+  }
+
+  // Proceed button
+  const proceedBtn = document.getElementById('confirm-proceed-btn');
+  if (proceedBtn) {
+    proceedBtn.addEventListener('click', async () => {
+      const choice = document.querySelector('input[name="file-type-choice"]:checked')?.value;
+      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+      const fs = data.formState;
+
+      // Update ingest options with confirmed header
+      const ingestOptions = {
+        encoding: document.getElementById('retry-encoding')?.value || fs.encoding,
+        delimiter: fs.delimiter,
+        hasHeader,
+      };
+
+      // Determine selected profile
+      let selectedProfileId = null;
+      if (choice === 'known' && pm.profile) {
+        selectedProfileId = pm.profile.id;
+      } else if (choice === 'alt') {
+        selectedProfileId = document.getElementById('alt-profile-select')?.value;
+      }
+      // choice === 'new' → no profile
+
+      proceedBtn.disabled = true;
+      proceedBtn.textContent = '実行中...';
+
+      try {
+        let result;
+        if (data.filePath && !fs.uploadedFiles?.length) {
+          // Local path execution
+          result = await api('/api/runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: fs.mode,
+              configPath: fs.configPath,
+              filePaths: [data.filePath],
+              ingestOptions,
+            }),
+          });
+        } else {
+          // Uploaded file execution
+          const formData = new FormData();
+          formData.append('mode', fs.mode);
+          if (fs.configPath) formData.append('configPath', fs.configPath);
+          if (fs.uploadedFiles) {
+            for (const f of fs.uploadedFiles) formData.append('files', f);
+          } else {
+            for (const f of uploadedFiles) formData.append('files', f);
+          }
+          if (fs.filePathsText?.length > 0) {
+            formData.append('filePaths', JSON.stringify(fs.filePathsText));
+          }
+          formData.append('ingestOptions', JSON.stringify(ingestOptions));
+
+          const res = await fetch('/api/runs', { method: 'POST', body: formData });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${res.status}`);
+          }
+          result = await res.json();
+        }
+
+        // If new file → go to column review; if known file → go to run detail
+        if (choice === 'new') {
+          pendingConfirmation = {
+            ...data,
+            runId: result.id,
+            selectedProfileId: null,
+          };
+          navigate(`/runs/${result.id}/columns`);
+        } else if (selectedProfileId) {
+          pendingConfirmation = {
+            ...data,
+            runId: result.id,
+            selectedProfileId,
+          };
+          navigate(`/runs/${result.id}/columns`);
+        } else {
+          navigate(`/runs/${result.id}`);
+        }
+      } catch (err) {
+        proceedBtn.disabled = false;
+        proceedBtn.textContent = '確認して実行';
+        alert('実行に失敗しました: ' + err.message);
+      }
+    });
+  }
+}
+
+// Simple client-side matching helper (preserves server match if available)
+function matchProfileClient(filename, columns, existingMatch) {
+  return existingMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
+}
+
+// --- Column Review Page ---
+
+async function renderColumnReview(runId) {
+  const data = pendingConfirmation || {};
+  const selectedProfileId = data.selectedProfileId;
+  const columns = data.columns || [];
+
+  // Load profile if known
+  let profile = null;
+  if (selectedProfileId) {
+    try { profile = await api(`/api/profiles/${selectedProfileId}`); } catch { /* ignore */ }
+  }
+
+  // Load existing review if any
+  let existingReview = null;
+  if (selectedProfileId) {
+    try {
+      const r = await api(`/api/column-reviews/${runId}/${selectedProfileId || 'new'}`);
+      existingReview = r.reviews;
+    } catch { /* ignore */ }
+  }
+
+  // Load preview data from the run
+  let previewRows = data.previewRows || [];
+  if (previewRows.length === 0) {
+    try {
+      const rd = await api(`/api/runs/${runId}/source-data?offset=0&limit=5`);
+      previewRows = rd.rows || [];
+      if (columns.length === 0 && rd.columns) columns.push(...rd.columns);
+    } catch { /* ignore */ }
+  }
+
+  // Build column entries
+  const entries = columns.map((col, i) => {
+    const profileCol = profile?.columns?.find(c => c.position === i);
+    const existing = existingReview?.find(r => r.position === i);
+    // Sample values for this column
+    const samples = previewRows.slice(0, 5).map(r => r[col]).filter(Boolean);
+
+    return {
+      position: i,
+      headerName: col,
+      profileLabel: profileCol?.label || '',
+      profileKey: profileCol?.key || '',
+      profileRequired: profileCol?.required ?? false,
+      profileRule: profileCol?.rule || '',
+      samples,
+      // Current review values
+      meaning: existing?.meaning ?? profileCol?.label ?? '',
+      inUse: existing?.inUse ?? 'unknown',
+      required: existing?.required ?? (profileCol?.required ? 'yes' : 'unknown'),
+      rule: existing?.rule ?? profileCol?.rule ?? '',
+    };
+  });
+
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px">列の確認</h2>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="save-review-btn">保存</button>
+        <a href="/runs/${escapeHtml(runId)}" class="btn">あとで続ける</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+        ${profile ? `「<strong>${escapeHtml(profile.label)}</strong>」の列を確認してください。` : '各列の意味を教えてください。'}
+        ${profile?.provisional ? '<span class="badge badge-warning">仮の定義です — 確認をお願いします</span>' : ''}
+      </p>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">
+        わからない場合は、そのままで大丈夫です。あとから修正できます。
+      </p>
+  `;
+
+  for (const entry of entries) {
+    html += `
+      <div class="column-review-item" data-position="${entry.position}">
+        <div class="column-review-header">
+          <span class="badge badge-info">${entry.position + 1}列目</span>
+          <strong>${escapeHtml(entry.headerName)}</strong>
+          ${entry.profileLabel ? `<span style="font-size:12px;color:var(--text-secondary)">（候補: ${escapeHtml(entry.profileLabel)}）</span>` : ''}
+        </div>
+
+        ${entry.samples.length > 0 ? `
+          <div style="margin:6px 0 8px 0;font-size:12px;color:var(--text-secondary)">
+            例: ${entry.samples.slice(0, 3).map(s => `<code style="background:var(--bg);padding:1px 4px;border-radius:2px">${escapeHtml(truncate(s, 30))}</code>`).join(', ')}
+          </div>
+        ` : ''}
+
+        <div class="column-review-fields">
+          <div class="column-review-field">
+            <label>この列は何を入れる場所ですか？</label>
+            <input type="text" class="col-meaning" value="${escapeHtml(entry.meaning)}" placeholder="例: 会社名、電話番号 など">
+          </div>
+          <div class="column-review-field">
+            <label>今も使いますか？</label>
+            <select class="col-inuse">
+              <option value="unknown" ${entry.inUse === 'unknown' ? 'selected' : ''}>わからない</option>
+              <option value="yes" ${entry.inUse === 'yes' ? 'selected' : ''}>はい</option>
+              <option value="no" ${entry.inUse === 'no' ? 'selected' : ''}>いいえ（不要）</option>
+            </select>
+          </div>
+          <div class="column-review-field">
+            <label>必須ですか？</label>
+            <select class="col-required">
+              <option value="unknown" ${entry.required === 'unknown' ? 'selected' : ''}>わからない</option>
+              <option value="yes" ${entry.required === 'yes' ? 'selected' : ''}>はい（必須）</option>
+              <option value="no" ${entry.required === 'no' ? 'selected' : ''}>いいえ</option>
+            </select>
+          </div>
+          <div class="column-review-field">
+            <label>入力ルールがありますか？</label>
+            <input type="text" class="col-rule" value="${escapeHtml(entry.rule)}" placeholder="例: 半角数字のみ、日付形式 など">
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  html += `
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="save-review-btn-bottom">保存して結果を見る</button>
+      <a href="/runs/${escapeHtml(runId)}" class="btn">あとで続ける</a>
+    </div>
+  `;
+
+  app.innerHTML = html;
+
+  // Save review handler
+  const saveHandler = async () => {
+    const items = document.querySelectorAll('.column-review-item');
+    const reviews = [];
+    items.forEach(item => {
+      const pos = parseInt(item.dataset.position);
+      reviews.push({
+        position: pos,
+        label: columns[pos] || '',
+        key: entries[pos]?.profileKey || columns[pos] || '',
+        meaning: item.querySelector('.col-meaning')?.value || '',
+        inUse: item.querySelector('.col-inuse')?.value || 'unknown',
+        required: item.querySelector('.col-required')?.value || 'unknown',
+        rule: item.querySelector('.col-rule')?.value || '',
+      });
+    });
+
+    try {
+      await api(`/api/column-reviews/${runId}/${selectedProfileId || 'new'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviews }),
+      });
+      navigate(`/runs/${runId}`);
+    } catch (err) {
+      alert('保存に失敗しました: ' + err.message);
+    }
+  };
+
+  document.getElementById('save-review-btn')?.addEventListener('click', saveHandler);
+  document.getElementById('save-review-btn-bottom')?.addEventListener('click', saveHandler);
 }
 
 // --- Init ---
