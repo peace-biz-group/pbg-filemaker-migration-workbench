@@ -69,4 +69,18 @@ describe('Pipeline runner', () => {
     expect(meta.status).toBe('failed');
     expect(meta.error).toBeTruthy();
   });
+
+  it('executeRun 後の run meta に columnNames が保存される', async () => {
+    const file = join(FIXTURES, 'utf8.csv');
+    const meta = await executeRun('profile', [file], config);
+    expect(meta.status).toBe('completed');
+    expect(meta.columnNames).toBeDefined();
+    expect(Array.isArray(meta.columnNames)).toBe(true);
+    expect(meta.columnNames!.length).toBeGreaterThan(0);
+
+    // run-meta.json に永続化されていること
+    const { readFileSync } = await import('node:fs');
+    const saved = JSON.parse(readFileSync(`${meta.outputDir}/run-meta.json`, 'utf-8'));
+    expect(saved.columnNames).toEqual(meta.columnNames);
+  });
 });

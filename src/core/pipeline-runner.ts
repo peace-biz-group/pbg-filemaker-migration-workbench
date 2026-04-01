@@ -39,6 +39,8 @@ export interface RunMeta {
   sourceFileHashes?: Record<string, string>;
   schemaFingerprints?: Record<string, string>;
   ingestDiagnoses?: Record<string, IngestDiagnosis>;
+  /** 最初の入力ファイルの列名一覧（drift context 用） */
+  columnNames?: string[];
   previousRunId?: string;
   /** confirm 段階で duplicate warning が表示された場合 true */
   duplicateWarningShown?: boolean;
@@ -252,6 +254,10 @@ export async function executeRun(
         schemaFingerprints[f] = ir.schemaFingerprint;
         ingestDiagnoses[f] = ir.diagnosis;
         inputColumns[f] = ir.columns;
+        // drift context 用: 最初のファイルの列名を保存
+        if (!meta.columnNames && ir.columns.length > 0) {
+          meta.columnNames = ir.columns;
+        }
 
         // Write mapping suggestions
         const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
