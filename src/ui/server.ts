@@ -28,7 +28,7 @@ import {
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
-import { buildPreRunDiffPreview } from '../core/pre-run-diff.js';
+import { buildPreRunDiffPreview, buildColumnsDriftContext } from '../core/pre-run-diff.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -191,9 +191,13 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
       const dupWarningShown = req.body.duplicateWarningShown === 'true' || req.body.duplicateWarningShown === true;
       const dupOverride = req.body.duplicateOverride === 'true' || req.body.duplicateOverride === true;
+      const schemaDriftWarningShown = req.body.schemaDriftWarningShown === 'true' || req.body.schemaDriftWarningShown === true;
+      const schemaDriftOverride = req.body.schemaDriftOverride === 'true' || req.body.schemaDriftOverride === true;
       const meta = await executeRun(mode, inputFiles, config, configPath, {
         ...(dupWarningShown ? { duplicateWarningShown: true } : {}),
         ...(dupOverride ? { duplicateOverride: true } : {}),
+        ...(schemaDriftWarningShown ? { schemaDriftWarningShown: true } : {}),
+        ...(schemaDriftOverride ? { schemaDriftOverride: true } : {}),
       });
       res.json(meta);
     } catch (err) {
@@ -691,6 +695,14 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       columnCount,
     });
     res.json(preview);
+  });
+
+  // --- API: Columns drift context (schema drift 後の columns 画面用) ---
+  app.get('/api/runs/:id/drift-context', (req, res) => {
+    const runId = req.params.id;
+    const ctx = buildColumnsDriftContext(baseOutputDir, runId);
+    if (!ctx) return res.json(null);
+    res.json(ctx);
   });
 
   // --- API: List config files ---

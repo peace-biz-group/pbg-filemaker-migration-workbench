@@ -39,11 +39,17 @@ export interface RunMeta {
   sourceFileHashes?: Record<string, string>;
   schemaFingerprints?: Record<string, string>;
   ingestDiagnoses?: Record<string, IngestDiagnosis>;
+  /** 最初の入力ファイルの列名一覧（drift context 用） */
+  columnNames?: string[];
   previousRunId?: string;
   /** confirm 段階で duplicate warning が表示された場合 true */
   duplicateWarningShown?: boolean;
   /** duplicate warning を見た上で明示的に override して実行した場合 true */
   duplicateOverride?: boolean;
+  /** confirm 段階で schema drift warning が表示された場合 true */
+  schemaDriftWarningShown?: boolean;
+  /** schema drift warning を見た上で明示的に override して進んだ場合 true */
+  schemaDriftOverride?: boolean;
 }
 
 function generateRunId(): string {
@@ -197,6 +203,8 @@ export async function executeRun(
     async?: boolean;
     duplicateWarningShown?: boolean;
     duplicateOverride?: boolean;
+    schemaDriftWarningShown?: boolean;
+    schemaDriftOverride?: boolean;
   },
 ): Promise<RunMeta> {
   const runId = generateRunId();
@@ -213,6 +221,8 @@ export async function executeRun(
     outputDir: runDir,
     ...(options?.duplicateWarningShown ? { duplicateWarningShown: true } : {}),
     ...(options?.duplicateOverride ? { duplicateOverride: true } : {}),
+    ...(options?.schemaDriftWarningShown ? { schemaDriftWarningShown: true } : {}),
+    ...(options?.schemaDriftOverride ? { schemaDriftOverride: true } : {}),
   };
   saveMeta(meta);
 
@@ -244,6 +254,10 @@ export async function executeRun(
         schemaFingerprints[f] = ir.schemaFingerprint;
         ingestDiagnoses[f] = ir.diagnosis;
         inputColumns[f] = ir.columns;
+        // drift context 用: 最初のファイルの列名を保存
+        if (!meta.columnNames && ir.columns.length > 0) {
+          meta.columnNames = ir.columns;
+        }
 
         // Write mapping suggestions
         const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
