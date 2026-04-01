@@ -1138,6 +1138,9 @@ async function renderConfirmPage() {
   const pm = data.profileMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
   const diag = data.diagnosis || {};
 
+  // fast path 判定: high confidence の known file のみ
+  const isFastPathEligible = pm.profile !== null && pm.confidence === 'high';
+
   // Determine encoding display
   const encodingDisplay = diag.format === 'csv'
     ? `${diag.detectedEncoding || '不明'} → ${diag.appliedEncoding || '不明'}`
@@ -1303,12 +1306,28 @@ async function renderConfirmPage() {
   `;
 
   // Action buttons
-  html += `
-    <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
-      <a href="/new" class="btn">戻る</a>
-    </div>
-  `;
+  if (isFastPathEligible) {
+    html += `
+      <div class="card" style="background:var(--bg-secondary,#f8f9fa);border:1px solid var(--success,#16a34a);margin-top:8px">
+        <p style="font-size:14px;font-weight:600;color:var(--success,#16a34a);margin-bottom:4px">前に保存した設定で進めます</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          「${escapeHtml(pm.profile.label)}」の設定をそのまま使います。心配な場合は「列を確認する」を選んでください。
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="fast-path-btn">このまま進む</button>
+          <button class="btn" id="confirm-proceed-btn">列を確認する</button>
+          <a href="/new" class="btn">戻る</a>
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
+        <a href="/new" class="btn">戻る</a>
+      </div>
+    `;
+  }
 
   app.innerHTML = html;
 
@@ -1444,6 +1463,76 @@ async function renderConfirmPage() {
       } catch (err) {
         proceedBtn.disabled = false;
         proceedBtn.textContent = '確認して実行';
+        alert('実行に失敗しました: ' + err.message);
+      }
+    });
+  }
+
+  // Fast path button handler — known file を列レビューなしで進める
+  const fastPathBtn = document.getElementById('fast-path-btn');
+  if (fastPathBtn) {
+    fastPathBtn.addEventListener('click', async () => {
+      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+      const fs = data.formState;
+
+      const ingestOptions = {
+        encoding: document.getElementById('retry-encoding')?.value || fs.encoding,
+        delimiter: fs.delimiter,
+        hasHeader,
+      };
+
+      fastPathBtn.disabled = true;
+      fastPathBtn.textContent = '実行中...';
+
+      try {
+        // run を作成する
+        let runResult;
+        if (data.filePath && !fs.uploadedFiles?.length) {
+          runResult = await api('/api/runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: fs.mode,
+              configPath: fs.configPath,
+              filePaths: [data.filePath],
+              ingestOptions,
+            }),
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('mode', fs.mode);
+          if (fs.configPath) formData.append('configPath', fs.configPath);
+          if (fs.uploadedFiles) {
+            for (const f of fs.uploadedFiles) formData.append('files', f);
+          }
+          if (fs.filePathsText?.length > 0) {
+            formData.append('filePaths', JSON.stringify(fs.filePathsText));
+          }
+          formData.append('ingestOptions', JSON.stringify(ingestOptions));
+
+          const res = await fetch('/api/runs', { method: 'POST', body: formData });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${res.status}`);
+          }
+          runResult = await res.json();
+        }
+
+        // fast path で列レビューをスキップして normalize 再実行
+        const fastResult = await api(`/api/runs/${runResult.id}/fast-path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profileId: pm.profile.id,
+            columns: data.columns || [],
+          }),
+        });
+
+        // fast path 後の run（normalize 済み）に遷移
+        navigate(`/runs/${fastResult.runId}`);
+      } catch (err) {
+        fastPathBtn.disabled = false;
+        fastPathBtn.textContent = 'このまま進む';
         alert('実行に失敗しました: ' + err.message);
       }
     });
