@@ -1,6 +1,9 @@
 # FileMaker Data Workbench
 
-FileMaker から出力した CSV / XLSX を読み込み、データの調査・正規化・重複候補抽出・候補分類・レビュー用レポート出力を行うローカルツールです。CLI とブラウザベースのレビュー UI の両方から使えます。
+> **このシステムの目的・対象・成功条件**: [`docs/workbench-mission.md`](docs/workbench-mission.md) を参照してください。
+> **実装・設計の作業前提 (Agent 向け)**: [`CLAUDE.md`](CLAUDE.md) を参照してください。
+
+稼働中の FileMaker を止めずに、データの意味を現場と一緒に解明し、差分に耐える形へ整備するワークベンチ。FileMaker から出力した CSV / XLSX を読み込み、ファイル種別の特定・列の意味確認・正規化・重複候補抽出・差分追跡を行います。CLI とブラウザベースのレビュー UI の両方から使えます。
 
 ## 特徴
 

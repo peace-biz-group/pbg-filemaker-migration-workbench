@@ -791,6 +791,7 @@ async function renderRunDetail(runId) {
 
     // 列確認カードを非同期でロード
     loadColumnStatusCard(runId);
+    loadRunDiffCard(runId);
 
     // Delete button
     document.getElementById('btn-delete').addEventListener('click', async () => {
@@ -886,6 +887,62 @@ async function loadColumnStatusCard(runId) {
       summaryCard.insertAdjacentHTML('afterend', cardHtml);
     }
   } catch { /* ignore — column status is optional */ }
+}
+
+// --- 前回との比較カード (run detail) ---
+
+async function loadRunDiffCard(runId) {
+  try {
+    const diff = await api(`/api/runs/${runId}/diff`);
+    if (!diff || diff.classification === 'no_comparable') return;
+
+    const diffLabel = escapeHtml(diff.classificationLabel || '比較対象なし');
+    const prevId = diff.previousRunId ? escapeHtml(diff.previousRunId) : '';
+    const rowDelta = diff.totals ? diff.totals.recordCountDelta : 0;
+    const rowSign = rowDelta > 0 ? '+' : '';
+    const prevCount = typeof diff.rowCountPrev === 'number' ? diff.rowCountPrev.toLocaleString() : '—';
+    const currCount = typeof diff.rowCountCurr === 'number' ? diff.rowCountCurr.toLocaleString() : '—';
+    const colDelta = (diff.columnCountCurr || 0) - (diff.columnCountPrev || 0);
+    const colDeltaText = colDelta === 0 ? '変化なし' : `${colDelta > 0 ? '+' : ''}${colDelta} 列`;
+    const rowDeltaColor = rowDelta > 0 ? 'var(--success,#22c55e)' : rowDelta < 0 ? 'var(--danger)' : 'inherit';
+    const rowDeltaText = rowDelta === 0 ? '変化なし' : `${rowSign}${rowDelta.toLocaleString()}`;
+
+    let colChangesHtml = '';
+    if (diff.addedColumns && diff.addedColumns.length > 0) {
+      colChangesHtml += `<p style="font-size:12px;margin-top:4px">追加された列: ${diff.addedColumns.map(escapeHtml).join('、')}</p>`;
+    }
+    if (diff.removedColumns && diff.removedColumns.length > 0) {
+      colChangesHtml += `<p style="font-size:12px;margin-top:4px">削除された列: ${diff.removedColumns.map(escapeHtml).join('、')}</p>`;
+    }
+
+    const cardHtml = `
+      <div class="card" id="run-diff-card">
+        <h2>前回との比較</h2>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+          比較対象: <a href="/runs/${prevId}">${prevId}</a>
+        </p>
+        <p style="font-size:14px;font-weight:600;margin-bottom:8px">${diffLabel}</p>
+        <div class="stats" style="margin-bottom:8px">
+          <div class="stat">
+            <div class="label">件数の変化</div>
+            <div class="value" style="color:${rowDeltaColor}">${rowDeltaText}</div>
+          </div>
+          <div class="stat"><div class="label">前回件数</div><div class="value">${prevCount}</div></div>
+          <div class="stat"><div class="label">今回件数</div><div class="value">${currCount}</div></div>
+          <div class="stat"><div class="label">列数の変化</div><div class="value">${colDeltaText}</div></div>
+        </div>
+        ${colChangesHtml}
+      </div>
+    `;
+
+    // サマリカードの直後に挿入
+    const summaryCard = app.querySelector('.card');
+    if (summaryCard) {
+      summaryCard.insertAdjacentHTML('afterend', cardHtml);
+    }
+  } catch {
+    // diff カードはオプション — エラーでも UI を壊さない
+  }
 }
 
 async function saveCandidateFromRun(runId, profileId) {
@@ -1126,6 +1183,56 @@ function truncate(str, maxLen) {
   return str.slice(0, maxLen - 3) + '...';
 }
 
+// --- Pre-run diff preview card ---
+
+function renderPreRunPreviewCard(preview) {
+  if (!preview || preview.classification === 'no_comparable') return '';
+
+  const cls = preview.classification;
+  const lbl = preview.classificationLabel || '';
+
+  let icon = '○';
+  let color = 'var(--text-secondary)';
+  let bgColor = 'var(--bg,#fff)';
+  if (cls === 'same_file') {
+    icon = '✓'; color = 'var(--success,#16a34a)'; bgColor = '#dcfce7';
+  } else if (cls === 'first_import') {
+    icon = '★'; color = '#6366f1'; bgColor = '#ede9fe';
+  } else if (cls === 'column_changed') {
+    icon = '!'; color = '#d97706'; bgColor = '#fef3c7';
+  } else if (cls === 'row_changed') {
+    icon = '↑'; color = '#2563eb'; bgColor = '#dbeafe';
+  }
+
+  let detailLines = '';
+  if (preview.previousRunId) {
+    if (preview.rowCountPrev !== null && preview.rowCountPrev !== undefined) {
+      detailLines += `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">前回の件数: <strong>${preview.rowCountPrev.toLocaleString('ja-JP')}件</strong></div>`;
+    }
+    if (preview.columnCountDelta !== null && preview.columnCountDelta !== undefined && preview.columnCountDelta !== 0) {
+      const sign = preview.columnCountDelta > 0 ? '+' : '';
+      detailLines += `<div style="font-size:12px;color:${color};margin-top:2px">列数の変化: <strong>${sign}${preview.columnCountDelta}列</strong>（前回 ${preview.columnCountPrev ?? '?'}列 → 今回 ${preview.columnCountCurr}列）</div>`;
+    } else if (preview.columnCountPrev !== null && preview.columnCountPrev !== undefined) {
+      detailLines += `<div style="font-size:12px;color:var(--text-secondary);margin-top:2px">列数: <strong>${preview.columnCountCurr}列</strong>（前回と同じ）</div>`;
+    }
+  }
+
+  let recommendHtml = '';
+  if (preview.columnReviewRecommended) {
+    recommendHtml = `<div style="margin-top:6px;font-size:12px;color:#d97706;font-weight:600">列の確認をおすすめします</div>`;
+  } else if (preview.fastPathRecommended) {
+    recommendHtml = `<div style="margin-top:6px;font-size:12px;color:var(--success,#16a34a)">「このまま進む」が使えます</div>`;
+  }
+
+  return `
+    <div class="card" style="background:${bgColor};border:1px solid ${color};padding:12px 16px" id="pre-run-preview-card">
+      <div style="font-size:13px;font-weight:600;color:${color}">${icon} ${escapeHtml(lbl)}</div>
+      ${detailLines}
+      ${recommendHtml}
+    </div>
+  `;
+}
+
 // --- Confirm Page (upload → identify → confirm) ---
 
 async function renderConfirmPage() {
@@ -1137,6 +1244,9 @@ async function renderConfirmPage() {
   const data = pendingConfirmation;
   const pm = data.profileMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
   const diag = data.diagnosis || {};
+
+  // fast path 判定: high confidence の known file のみ
+  const isFastPathEligible = pm.profile !== null && pm.confidence === 'high';
 
   // Determine encoding display
   const encodingDisplay = diag.format === 'csv'
@@ -1170,14 +1280,19 @@ async function renderConfirmPage() {
     const candidateBadge = pm.profile?.candidate
       ? '<span style="font-size:10px;background:#f0ad4e;color:#fff;padding:1px 6px;border-radius:4px;margin-left:6px">仮の設定</span>'
       : '';
+    const confidenceLabel = pm.confidence === 'high' ? '✓ よく一致' : pm.confidence === 'medium' ? 'だいたい一致' : '候補';
+    const confidenceColor = pm.confidence === 'high' ? 'var(--success,#16a34a)' : pm.confidence === 'medium' ? '#f59e0b' : 'var(--text-secondary)';
     html += `
       <div class="confirm-choice-card selected" id="choice-known">
         <div class="confirm-choice-header">
           <input type="radio" name="file-type-choice" value="known" checked>
           <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}${candidateBadge}
-          <span class="badge badge-info">${escapeHtml(pm.reason)}</span>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
+        <p style="font-size:12px;margin:4px 0 0 24px">
+          <span style="color:${confidenceColor};font-weight:600">${escapeHtml(confidenceLabel)}</span>
+          <span style="color:var(--text-secondary)"> — ${escapeHtml(pm.reason)}</span>
+        </p>
+        <p style="font-size:12px;color:var(--text-secondary);margin:2px 0 0 24px">
           分類: ${escapeHtml(pm.profile.category)} ｜ 列数: ${pm.profile.columns.length}
         </p>
       </div>
@@ -1298,14 +1413,58 @@ async function renderConfirmPage() {
   `;
 
   // Action buttons
-  html += `
-    <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
-      <a href="/new" class="btn">戻る</a>
-    </div>
-  `;
+  if (isFastPathEligible) {
+    html += `
+      <div class="card" style="background:var(--bg-secondary,#f8f9fa);border:1px solid var(--success,#16a34a);margin-top:8px">
+        <p style="font-size:14px;font-weight:600;color:var(--success,#16a34a);margin-bottom:4px">前に保存した設定で進めます</p>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          「${escapeHtml(pm.profile.label)}」の設定をそのまま使います。心配な場合は「列を確認する」を選んでください。
+        </p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="fast-path-btn">このまま進む</button>
+          <button class="btn" id="confirm-proceed-btn">列を確認する</button>
+          <a href="/new" class="btn">戻る</a>
+        </div>
+      </div>
+    `;
+  } else {
+    html += `
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
+        <a href="/new" class="btn">戻る</a>
+      </div>
+    `;
+  }
 
   app.innerHTML = html;
+
+  // Pre-run preview: 比較対象カードを非同期取得してカードの前に差し込む
+  const preRunContainer = document.createElement('div');
+  preRunContainer.id = 'pre-run-preview-container';
+  // ファイル種別カード（最初の .card）の直後、ヘッダーチェックカード（2番目以降の .card）の前に挿入
+  const cards = app.querySelectorAll('.card');
+  const insertBefore = cards.length >= 2 ? cards[1] : null;
+  if (insertBefore) {
+    app.insertBefore(preRunContainer, insertBefore);
+  } else {
+    app.appendChild(preRunContainer);
+  }
+
+  (async () => {
+    try {
+      const params = new URLSearchParams({ filename: data.filename || '', columnCount: String((data.columns || []).length) });
+      if (data.sourceFileHash) params.set('sourceFileHash', data.sourceFileHash);
+      if (data.schemaFingerprint) params.set('schemaFingerprint', data.schemaFingerprint);
+      if (pm.profile && pm.profile.id) params.set('profileId', pm.profile.id);
+      if (diag.headerApplied !== undefined) params.set('hasHeader', diag.headerApplied ? 'true' : 'false');
+
+      const preview = await api(`/api/pre-run-preview?${params.toString()}`);
+      const container = document.getElementById('pre-run-preview-container');
+      if (container) container.outerHTML = renderPreRunPreviewCard(preview);
+    } catch {
+      // 取得失敗は無視 — confirm フローを止めない
+    }
+  })();
 
   // Wire up radio button interactions
   document.querySelectorAll('input[name="file-type-choice"]').forEach(radio => {
@@ -1439,6 +1598,76 @@ async function renderConfirmPage() {
       } catch (err) {
         proceedBtn.disabled = false;
         proceedBtn.textContent = '確認して実行';
+        alert('実行に失敗しました: ' + err.message);
+      }
+    });
+  }
+
+  // Fast path button handler — known file を列レビューなしで進める
+  const fastPathBtn = document.getElementById('fast-path-btn');
+  if (fastPathBtn) {
+    fastPathBtn.addEventListener('click', async () => {
+      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+      const fs = data.formState;
+
+      const ingestOptions = {
+        encoding: document.getElementById('retry-encoding')?.value || fs.encoding,
+        delimiter: fs.delimiter,
+        hasHeader,
+      };
+
+      fastPathBtn.disabled = true;
+      fastPathBtn.textContent = '実行中...';
+
+      try {
+        // run を作成する
+        let runResult;
+        if (data.filePath && !fs.uploadedFiles?.length) {
+          runResult = await api('/api/runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: fs.mode,
+              configPath: fs.configPath,
+              filePaths: [data.filePath],
+              ingestOptions,
+            }),
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('mode', fs.mode);
+          if (fs.configPath) formData.append('configPath', fs.configPath);
+          if (fs.uploadedFiles) {
+            for (const f of fs.uploadedFiles) formData.append('files', f);
+          }
+          if (fs.filePathsText?.length > 0) {
+            formData.append('filePaths', JSON.stringify(fs.filePathsText));
+          }
+          formData.append('ingestOptions', JSON.stringify(ingestOptions));
+
+          const res = await fetch('/api/runs', { method: 'POST', body: formData });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${res.status}`);
+          }
+          runResult = await res.json();
+        }
+
+        // fast path で列レビューをスキップして normalize 再実行
+        const fastResult = await api(`/api/runs/${runResult.id}/fast-path`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profileId: pm.profile.id,
+            columns: data.columns || [],
+          }),
+        });
+
+        // fast path 後の run（normalize 済み）に遷移
+        navigate(`/runs/${fastResult.runId}`);
+      } catch (err) {
+        fastPathBtn.disabled = false;
+        fastPathBtn.textContent = 'このまま進む';
         alert('実行に失敗しました: ' + err.message);
       }
     });
