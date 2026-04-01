@@ -15,16 +15,11 @@ import { loadConfig } from '../config/defaults.js';
 import { executeRun, listRuns, getRun, getRunOutputFiles, deleteRun, getRunEmitter } from '../core/pipeline-runner.js';
 import type { RunMode, ProgressEvent } from '../core/pipeline-runner.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
-import { ALL_LABELS } from './labels.js';
-import { saveTemplate, loadTemplate, listTemplates, deleteTemplate, findMatchingTemplates } from '../core/template-store.js';
-import type { FileTemplate } from '../types/index.js';
-import { detectHeaderLikelihood } from '../ingest/header-detector.js';
-import { scanForMojibake } from '../ingest/mojibake-detector.js';
 import {
-  createReview, listReviews, getReview, updateReviewColumns,
-  updateReviewSummary, deleteReview as deleteReviewBundle,
-  getReviewOutputFiles, generateBundle,
-} from '../core/review-bundle.js';
+  loadProfiles, getProfiles, getProfileById, matchProfile,
+  saveProfiles, saveColumnReview, loadColumnReview,
+} from '../file-profiles/index.js';
+import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -33,14 +28,8 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
   const app = express();
   app.use(express.json());
 
-  // Resolved bundle directory for submitted review bundles
-  const resolvedBundleDir = resolve(bundleDir || join(baseOutputDir, 'review-bundles'));
-  const submittedDir = join(resolvedBundleDir, 'submitted');
-  const checkedDir = join(resolvedBundleDir, 'checked');
-  const reworkDir = join(resolvedBundleDir, 'rework');
-  for (const d of [submittedDir, checkedDir, reworkDir]) {
-    mkdirSync(d, { recursive: true });
-  }
+  // Load file profiles on startup
+  loadProfiles(baseOutputDir);
 
   // Static files
   app.use('/static', express.static(join(__dirname, 'public')));
@@ -52,11 +41,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
   // --- Pages (serve index.html for all page routes) ---
   const indexHtml = join(__dirname, 'public', 'index.html');
-  const spaRoutes = [
-    '/', '/new', '/runs/:id',
-    '/reviews/new', '/reviews/:id', '/reviews/:id/columns', '/reviews/:id/summary',
-  ];
-  for (const route of spaRoutes) {
+  for (const route of ['/', '/new', '/confirm', '/runs/:id', '/runs/:id/columns']) {
     app.get(route, (_req, res) => {
       res.sendFile(indexHtml);
     });
@@ -427,155 +412,107 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     }
   });
 
-  // --- API: Labels ---
-  app.get('/api/labels', (_req, res) => {
-    res.json(ALL_LABELS);
-  });
-
-  // --- API: Templates ---
-  app.get('/api/templates', (_req, res) => {
-    const templates = listTemplates(baseOutputDir);
-    res.json(templates);
-  });
-
-  app.get('/api/templates/:id', (req, res) => {
-    const template = loadTemplate(baseOutputDir, req.params.id);
-    if (!template) return res.status(404).json({ error: 'Template not found' });
-    res.json(template);
-  });
-
-  app.post('/api/templates', (req, res) => {
-    const template = req.body as FileTemplate;
-    if (!template || !template.id || !template.displayName) {
-      return res.status(400).json({ error: 'Invalid template: id and displayName required' });
-    }
-    saveTemplate(baseOutputDir, template);
-    res.status(201).json(template);
-  });
-
-  app.delete('/api/templates/:id', (req, res) => {
-    const deleted = deleteTemplate(baseOutputDir, req.params.id);
-    if (!deleted) return res.status(404).json({ error: 'Template not found' });
-    res.json({ ok: true });
-  });
-
-  // NOTE: 'match' must remain before any parameterised POST route to avoid being captured as :id
-  app.post('/api/templates/match', (req, res) => {
-    const { filename, columns, encoding, hasHeader } = req.body as {
-      filename: string;
-      columns: string[];
-      encoding: string;
-      hasHeader: boolean;
-    };
-    if (!filename || !Array.isArray(columns)) {
-      return res.status(400).json({ error: 'filename and columns are required' });
-    }
-    const matches = findMatchingTemplates(
-      baseOutputDir,
-      filename,
-      columns,
-      encoding ?? 'utf8',
-      hasHeader ?? true,
-    );
-    res.json(matches);
-  });
-
-  // ===== Review API =====
-
-  // --- API: Create review from a run ---
-  app.post('/api/reviews', async (req, res) => {
+  // --- API: Upload and identify file (profile matching) ---
+  app.post('/api/upload-identify', upload.single('file'), async (req, res) => {
     try {
-      const { runId, fileIndex, configPath } = req.body;
-      if (!runId) return res.status(400).json({ error: 'runId is required' });
-      const config = loadConfig(configPath || undefined);
-      config.outputDir = baseOutputDir;
-      const review = await createReview(runId, baseOutputDir, config, fileIndex ?? 0);
-      res.json(review);
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create review' });
-    }
-  });
-
-  // --- API: List reviews ---
-  app.get('/api/reviews', (_req, res) => {
-    res.json(listReviews(baseOutputDir));
-  });
-
-  // --- API: Get review detail ---
-  app.get('/api/reviews/:id', (req, res) => {
-    const review = getReview(baseOutputDir, req.params.id);
-    if (!review) return res.status(404).json({ error: 'Review not found' });
-    res.json(review);
-  });
-
-  // --- API: Update column reviews ---
-  app.put('/api/reviews/:id/columns', (req, res) => {
-    const updates = req.body;
-    if (!Array.isArray(updates)) return res.status(400).json({ error: 'Expected array of column updates' });
-    const review = updateReviewColumns(baseOutputDir, req.params.id, updates);
-    if (!review) return res.status(404).json({ error: 'Review not found' });
-    res.json(review);
-  });
-
-  // --- API: Update review summary ---
-  app.put('/api/reviews/:id/summary', (req, res) => {
-    const review = updateReviewSummary(baseOutputDir, req.params.id, req.body);
-    if (!review) return res.status(404).json({ error: 'Review not found' });
-    res.json(review);
-  });
-
-  // --- API: Finalize review → generate bundle + copy to submitted ---
-  app.post('/api/reviews/:id/finalize', async (req, res) => {
-    try {
-      const files = generateBundle(baseOutputDir, req.params.id);
-
-      // Copy bundle to submitted directory
-      const review = getReview(baseOutputDir, req.params.id);
-      if (review) {
-        const { cpSync } = await import('node:fs');
-        const srcDir = join(baseOutputDir, 'reviews', req.params.id);
-        const destDir = join(submittedDir, req.params.id);
-        mkdirSync(destDir, { recursive: true });
-        cpSync(srcDir, destDir, { recursive: true });
+      const uploaded = req.file as Express.Multer.File | undefined;
+      if (!uploaded) {
+        return res.status(400).json({ error: 'ファイルが指定されていません' });
       }
 
-      res.json({ files, savedTo: submittedDir });
+      const { renameSync } = await import('node:fs');
+      const dest = join(uploadDir, uploaded.originalname);
+      renameSync(uploaded.path, dest);
+
+      // Parse optional encoding/hasHeader overrides
+      const encoding = (req.body.encoding as IngestOptions['encoding']) ?? 'auto';
+      const hasHeader = req.body.hasHeader !== 'false';
+
+      const { ingestFile } = await import('../io/file-reader.js');
+      const ir = await ingestFile(dest, { encoding, hasHeader, previewRows: 10 }, 5000);
+      const sampleRows: Record<string, string>[] = [];
+      for await (const chunk of ir.records) {
+        for (const row of chunk) {
+          sampleRows.push(row);
+          if (sampleRows.length >= 10) break;
+        }
+        if (sampleRows.length >= 10) break;
+      }
+
+      const profileMatch = matchProfile(uploaded.originalname, ir.columns);
+
+      res.json({
+        filename: uploaded.originalname,
+        filePath: dest,
+        diagnosis: {
+          detectedEncoding: ir.diagnosis.format === 'csv' ? ir.diagnosis.detectedEncoding : 'xlsx',
+          appliedEncoding: ir.diagnosis.format === 'csv' ? ir.diagnosis.appliedEncoding : 'xlsx',
+          headerApplied: ir.diagnosis.headerApplied,
+          format: ir.diagnosis.format,
+        },
+        previewRows: sampleRows,
+        columns: ir.columns,
+        profileMatch,
+      });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Bundle generation failed' });
+      res.status(500).json({ error: err instanceof Error ? err.message : 'ファイルの読み取りに失敗しました' });
     }
   });
 
-  // --- API: List review output files ---
-  app.get('/api/reviews/:id/files', (req, res) => {
-    res.json(getReviewOutputFiles(baseOutputDir, req.params.id));
+  // --- API: List all file profiles ---
+  app.get('/api/profiles', (_req, res) => {
+    res.json(getProfiles());
   });
 
-  // --- API: Download review bundle file ---
-  app.get('/api/reviews/:id/raw/:filename', (req, res) => {
-    const review = getReview(baseOutputDir, req.params.id);
-    if (!review) return res.status(404).json({ error: 'Review not found' });
-    const dir = join(baseOutputDir, 'reviews', req.params.id);
-    const filePath = join(dir, req.params.filename);
-    if (!existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
-    res.sendFile(resolve(filePath));
+  // --- API: Get single profile ---
+  app.get('/api/profiles/:id', (req, res) => {
+    const profile = getProfileById(req.params.id);
+    if (!profile) return res.status(404).json({ error: 'プロファイルが見つかりません' });
+    res.json(profile);
   });
 
-  // --- API: Delete review ---
-  app.delete('/api/reviews/:id', (req, res) => {
-    const deleted = deleteReviewBundle(baseOutputDir, req.params.id);
-    if (!deleted) return res.status(404).json({ error: 'Review not found' });
-    res.json({ ok: true });
+  // --- API: Save/update a profile ---
+  app.post('/api/profiles', (req, res) => {
+    try {
+      const profile = req.body as FileProfile;
+      if (!profile.id || !profile.label) {
+        return res.status(400).json({ error: 'id と label は必須です' });
+      }
+      const profiles = getProfiles();
+      const idx = profiles.findIndex(p => p.id === profile.id);
+      if (idx >= 0) {
+        profiles[idx] = profile;
+      } else {
+        profiles.push(profile);
+      }
+      saveProfiles(baseOutputDir, profiles);
+      res.json({ ok: true, profile });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
+    }
   });
 
-  // --- API: Server info (for admin display) ---
-  app.get('/api/server-info', (_req, res) => {
-    res.json({
-      bundleDir: resolvedBundleDir,
-      submittedDir,
-      checkedDir,
-      reworkDir,
-      outputDir: baseOutputDir,
-    });
+  // --- API: Save column review ---
+  app.post('/api/column-reviews/:runId/:profileId', (req, res) => {
+    try {
+      const { runId, profileId } = req.params;
+      const reviews = req.body.reviews as ColumnReviewEntry[];
+      if (!Array.isArray(reviews)) {
+        return res.status(400).json({ error: 'reviews は配列で指定してください' });
+      }
+      saveColumnReview(baseOutputDir, runId, profileId, reviews);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
+    }
+  });
+
+  // --- API: Load column review ---
+  app.get('/api/column-reviews/:runId/:profileId', (req, res) => {
+    const { runId, profileId } = req.params;
+    const reviews = loadColumnReview(baseOutputDir, runId, profileId);
+    if (!reviews) return res.json({ reviews: null });
+    res.json({ reviews });
   });
 
   // --- API: List config files ---

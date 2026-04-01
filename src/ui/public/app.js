@@ -37,17 +37,16 @@ document.addEventListener('click', (e) => {
 function route() {
   const path = location.pathname;
   if (path === '/new') return renderNewRun();
-  if (path === '/reviews/new') return renderReviewStep1();
-  const reviewColMatch = path.match(/^\/reviews\/(.+)\/columns$/);
-  if (reviewColMatch) return renderReviewStep2(reviewColMatch[1]);
-  const reviewSumMatch = path.match(/^\/reviews\/(.+)\/summary$/);
-  if (reviewSumMatch) return renderReviewStep3(reviewSumMatch[1]);
-  const reviewMatch = path.match(/^\/reviews\/([^/]+)$/);
-  if (reviewMatch) return renderReviewStep2(reviewMatch[1]);
+  if (path === '/confirm') return renderConfirmPage();
+  const colMatch = path.match(/^\/runs\/(.+)\/columns$/);
+  if (colMatch) return renderColumnReview(colMatch[1]);
   const runMatch = path.match(/^\/runs\/(.+)$/);
   if (runMatch) return renderRunDetail(runMatch[1]);
   return renderDashboard();
 }
+
+// --- Shared state for upload → confirm flow ---
+let pendingConfirmation = null; // set by upload-identify response
 
 // --- API helpers ---
 
@@ -228,8 +227,9 @@ async function renderNewRun() {
         </div>
 
         <div style="display:flex;gap:8px;align-items:center">
-          <button type="submit" class="btn btn-primary" id="run-submit">実行</button>
-          <button type="button" class="btn" id="preview-btn">Preview</button>
+          <button type="button" class="btn btn-primary" id="confirm-btn">ファイルを確認</button>
+          <button type="submit" class="btn" id="run-submit">確認せず実行</button>
+          <button type="button" class="btn" id="preview-btn">プレビュー</button>
           <span id="run-status" style="font-size:13px;color:var(--text-secondary)"></span>
         </div>
       </form>
@@ -355,6 +355,91 @@ async function renderNewRun() {
         showPreviewModal(data);
       } catch (err) {
         alert('Preview 失敗: ' + err.message);
+      }
+    });
+  }
+
+  // Confirm button handler — upload & identify file, then show confirm page
+  const confirmBtn = $('#confirm-btn');
+  if (confirmBtn) {
+    confirmBtn.addEventListener('click', async () => {
+      const form = $('#run-form');
+      const status = $('#run-status');
+
+      if (uploadedFiles.length === 0) {
+        const filePaths = form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean);
+        if (filePaths.length === 0) {
+          alert('ファイルを選択してください');
+          return;
+        }
+        // For local path files, use the preview API to identify
+        try {
+          status.textContent = 'ファイルを確認中...';
+          const enc = form.encoding.value;
+          const data = await api(`/api/preview?file=${encodeURIComponent(filePaths[0])}&encoding=${enc}&rows=10`);
+          const profileMatch = await api(`/api/profiles`).then(profiles => {
+            // Do client-side matching by calling identify endpoint
+            return null;
+          }).catch(() => null);
+
+          // Simulate upload-identify response
+          pendingConfirmation = {
+            filename: filePaths[0].split('/').pop(),
+            filePath: filePaths[0],
+            diagnosis: data.diagnosis || {},
+            previewRows: data.sampleRows || [],
+            columns: data.columns || [],
+            profileMatch: { profile: null, confidence: 'none', reason: '', alternatives: [] },
+            formState: {
+              mode: form.mode.value,
+              configPath: form.configPath.value,
+              encoding: form.encoding.value,
+              delimiter: form.delimiter.value,
+              hasHeader: form.hasHeader.checked,
+              filePathsText: filePaths,
+            },
+          };
+          status.textContent = '';
+          navigate('/confirm');
+        } catch (err) {
+          status.textContent = 'エラー: ' + err.message;
+          status.style.color = 'var(--danger)';
+        }
+        return;
+      }
+
+      // Upload file and identify
+      try {
+        status.textContent = 'ファイルを確認中...';
+        const formData = new FormData();
+        formData.append('file', uploadedFiles[0]);
+        formData.append('encoding', form.encoding.value);
+        formData.append('hasHeader', form.hasHeader.checked ? 'true' : 'false');
+
+        const res = await fetch('/api/upload-identify', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+
+        pendingConfirmation = {
+          ...data,
+          formState: {
+            mode: form.mode.value,
+            configPath: form.configPath.value,
+            encoding: form.encoding.value,
+            delimiter: form.delimiter.value,
+            hasHeader: form.hasHeader.checked,
+            filePathsText: form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean),
+            uploadedFiles: uploadedFiles.slice(),
+          },
+        };
+        status.textContent = '';
+        navigate('/confirm');
+      } catch (err) {
+        status.textContent = 'エラー: ' + err.message;
+        status.style.color = 'var(--danger)';
       }
     });
   }
@@ -984,525 +1069,487 @@ function truncate(str, maxLen) {
   return str.slice(0, maxLen - 3) + '...';
 }
 
-// --- Review enums ---
+// --- Confirm Page (upload → identify → confirm) ---
 
-const FILE_TYPES = [
-  { value: 'apo_list', label: 'アポリスト' },
-  { value: 'customer_master', label: '顧客マスタ' },
-  { value: 'call_history', label: '架電履歴' },
-  { value: 'visit_history', label: '訪問履歴' },
-  { value: 'progress_management', label: '進捗管理' },
-  { value: 'estimate_product', label: '見積/商材' },
-  { value: 'document_review', label: '書類/審査' },
-  { value: 'mixed_unknown', label: '混合/不明' },
-];
+async function renderConfirmPage() {
+  if (!pendingConfirmation) {
+    navigate('/new');
+    return;
+  }
 
-const FIELD_FAMILIES = [
-  { value: 'identity', label: '本人情報' },
-  { value: 'contact', label: '連絡先' },
-  { value: 'customer_basic', label: '顧客基本' },
-  { value: 'company_store', label: '会社/店舗' },
-  { value: 'source_list', label: 'リスト/媒体' },
-  { value: 'sales_activity', label: '営業活動' },
-  { value: 'visit_schedule', label: '訪問予定' },
-  { value: 'progress', label: '進捗' },
-  { value: 'estimate', label: '見積' },
-  { value: 'product', label: '商材' },
-  { value: 'finance_review', label: '売上/審査' },
-  { value: 'documents', label: '書類' },
-  { value: 'cost', label: '原価' },
-  { value: 'notes', label: 'メモ' },
-  { value: 'metadata', label: 'システム' },
-  { value: 'raw_extra', label: 'その他/未分類' },
-];
+  const data = pendingConfirmation;
+  const pm = data.profileMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
+  const diag = data.diagnosis || {};
 
-const SECTIONS = [
-  { value: 'basic_info', label: '基本情報' },
-  { value: 'contact_info', label: '連絡先情報' },
-  { value: 'source_info', label: 'リスト情報' },
-  { value: 'activity_history', label: '活動履歴' },
-  { value: 'visit_info', label: '訪問情報' },
-  { value: 'progress_info', label: '進捗情報' },
-  { value: 'estimate_product_info', label: '見積/商材情報' },
-  { value: 'finance_review_info', label: '売上/審査情報' },
-  { value: 'document_info', label: '書類情報' },
-  { value: 'cost_info', label: '原価情報' },
-  { value: 'notes_info', label: 'メモ情報' },
-  { value: 'system_info', label: 'システム情報' },
-  { value: 'raw_extra_info', label: 'その他' },
-];
+  // Determine encoding display
+  const encodingDisplay = diag.format === 'csv'
+    ? `${diag.detectedEncoding || '不明'} → ${diag.appliedEncoding || '不明'}`
+    : 'XLSX';
 
-const DECISIONS = [
-  { value: 'accepted', label: '承認' },
-  { value: 'adjusted', label: '修正' },
-  { value: 'unknown', label: '不明' },
-  { value: 'unused', label: '不使用' },
-];
+  // Check for potential mojibake in preview
+  const hasMojibake = data.previewRows && data.previewRows.length > 0 &&
+    JSON.stringify(data.previewRows).includes('\\ufffd');
 
-function renderStepper(step) {
-  const steps = [
-    { n: 1, label: 'ファイル選択' },
-    { n: 2, label: 'カラムレビュー' },
-    { n: 3, label: 'サマリ / 出力' },
-  ];
-  return `<div class="review-stepper">${steps.map(s =>
-    `<div class="review-step ${s.n === step ? 'active' : s.n < step ? 'done' : ''}">${s.n}. ${s.label}</div>`
-  ).join('')}</div>`;
-}
+  // Load all profiles for alternative selection
+  let allProfiles = [];
+  try { allProfiles = await api('/api/profiles'); } catch { /* ignore */ }
 
-function selectOptions(items, selected) {
-  return items.map(i =>
-    `<option value="${i.value}"${i.value === selected ? ' selected' : ''}>${i.label}</option>`
-  ).join('');
-}
-
-// --- Review Step 1: File select / preview ---
-
-async function renderReviewStep1() {
-  app.innerHTML = `
-    ${renderStepper(1)}
-    <h2 style="font-size:18px;margin-bottom:16px">レビュー — ファイル選択</h2>
-    <div class="card" id="review-step1">
-      <div class="loading">実行結果を読み込み中...</div>
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px">ファイルの確認</h2>
+      <a href="/new" class="btn">戻る</a>
     </div>
-    <div class="card" id="existing-reviews" style="display:none">
-      <h3>既存レビュー</h3>
-      <div class="loading">読み込み中...</div>
+
+    <div class="card">
+      <h2>このファイルは何の一覧ですか？</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+        ファイル名: <strong>${escapeHtml(data.filename)}</strong>
+      </p>
+  `;
+
+  // Profile match result
+  if (pm.profile) {
+    const provLabel = pm.profile.provisional ? ' <span class="badge badge-warning">仮</span>' : '';
+    html += `
+      <div class="confirm-choice-card selected" id="choice-known">
+        <div class="confirm-choice-header">
+          <input type="radio" name="file-type-choice" value="known" checked>
+          <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}
+          <span class="badge badge-info">${escapeHtml(pm.reason)}</span>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
+          分類: ${escapeHtml(pm.profile.category)} ｜ 列数: ${pm.profile.columns.length}
+        </p>
+      </div>
+    `;
+  }
+
+  // Alternatives
+  if (pm.alternatives && pm.alternatives.length > 0) {
+    html += `<div class="confirm-choice-card" id="choice-alt">
+      <div class="confirm-choice-header">
+        <input type="radio" name="file-type-choice" value="alt">
+        <strong>別の種別を選ぶ</strong>
+      </div>
+      <div class="confirm-alt-list" style="margin:8px 0 0 24px;display:none">
+        <select id="alt-profile-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+          ${pm.alternatives.map(a =>
+            `<option value="${escapeHtml(a.profile.id)}">${escapeHtml(a.profile.label)} (${escapeHtml(a.reason)})</option>`
+          ).join('')}
+          ${allProfiles.filter(p => p.id !== pm.profile?.id && !pm.alternatives.some(a => a.profile.id === p.id)).map(p =>
+            `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`
+          ).join('')}
+        </select>
+      </div>
+    </div>`;
+  } else if (allProfiles.length > 0) {
+    html += `<div class="confirm-choice-card" id="choice-alt">
+      <div class="confirm-choice-header">
+        <input type="radio" name="file-type-choice" value="alt" ${!pm.profile ? 'checked' : ''}>
+        <strong>既存の種別から選ぶ</strong>
+      </div>
+      <div class="confirm-alt-list" style="margin:8px 0 0 24px;${pm.profile ? 'display:none' : ''}">
+        <select id="alt-profile-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+          ${allProfiles.map(p =>
+            `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)} (${escapeHtml(p.category)})</option>`
+          ).join('')}
+        </select>
+      </div>
+    </div>`;
+  }
+
+  // New file option
+  html += `
+    <div class="confirm-choice-card" id="choice-new">
+      <div class="confirm-choice-header">
+        <input type="radio" name="file-type-choice" value="new" ${!pm.profile && allProfiles.length === 0 ? 'checked' : ''}>
+        <strong>新しいファイルとして扱う</strong>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
+        列ごとの意味を入力して、新しいファイル種別を作ります
+      </p>
+    </div>
+  </div>
+  `;
+
+  // Header check
+  html += `
+    <div class="card">
+      <h2>1行目は見出しですか？</h2>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+        データの1行目を確認してください。列の名前（見出し）が入っていれば「はい」を選んでください。
+      </p>
+      <div style="display:flex;gap:12px;margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="has-header" value="true" ${diag.headerApplied !== false ? 'checked' : ''}> はい（見出しあり）
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="has-header" value="false" ${diag.headerApplied === false ? 'checked' : ''}> いいえ（データのみ）
+        </label>
+      </div>
+      ${data.columns && data.columns.length > 0 ? `
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">検出された見出し:</p>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px">
+          ${data.columns.map(c => `<span class="badge badge-info">${escapeHtml(c)}</span>`).join('')}
+        </div>
+      ` : ''}
     </div>
   `;
 
-  try {
-    const [runs, reviews] = await Promise.all([
-      api('/api/runs'),
-      api('/api/reviews'),
-    ]);
+  // Encoding / mojibake check
+  html += `
+    <div class="card">
+      <h2>文字化けしていませんか？</h2>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+        文字コード: ${escapeHtml(encodingDisplay)}
+      </p>
+      ${hasMojibake ? `
+        <div style="padding:8px 12px;background:#fee2e2;border-radius:4px;margin-bottom:8px;font-size:13px;color:var(--danger)">
+          文字化けの可能性があります。文字コードを変更して再試行してください。
+        </div>
+      ` : `
+        <div style="padding:8px 12px;background:#dcfce7;border-radius:4px;margin-bottom:8px;font-size:13px;color:var(--success)">
+          正常に読み取れています
+        </div>
+      `}
+  `;
 
-    const completed = runs.filter(r => r.status === 'completed');
-    const container = document.getElementById('review-step1');
-
-    if (completed.length === 0) {
-      container.innerHTML = `<div class="empty"><p>完了した Run がありません。先に <a href="/new">Run を実行</a> してください。</p></div>`;
-      return;
-    }
-
-    let html = `
-      <div class="form-group">
-        <label>レビュー対象の Run を選択</label>
-        <select id="review-run-select">
-          ${completed.map(r => {
-            const files = r.inputFiles.map(f => f.split('/').pop()).join(', ');
-            const time = new Date(r.startedAt).toLocaleString('ja-JP');
-            return `<option value="${r.id}">${r.mode} — ${files} (${time})</option>`;
-          }).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>レビュー担当者（任意）</label>
-        <input type="text" id="review-reviewer" placeholder="例: 田中" style="max-width:300px">
-      </div>
-      <button class="btn btn-primary" id="btn-start-review">列レビューを開始</button>
-      <span id="review-start-status" style="margin-left:12px;font-size:13px;color:var(--text-secondary)"></span>
+  // Preview table
+  if (data.previewRows && data.previewRows.length > 0 && data.columns) {
+    html += `
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">先頭 ${data.previewRows.length} 件のプレビュー:</p>
+      ${renderDataTable(data.columns, data.previewRows)}
     `;
-    container.innerHTML = html;
+  }
 
-    document.getElementById('btn-start-review').addEventListener('click', async () => {
-      const btn = document.getElementById('btn-start-review');
-      const status = document.getElementById('review-start-status');
-      btn.disabled = true;
-      status.textContent = 'レビューを作成中...';
+  html += `
+      <div style="margin-top:12px">
+        <label style="font-size:13px;font-weight:600;color:var(--text-secondary)">文字コードを変更して再読み込み</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <select id="retry-encoding" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+            <option value="auto">自動検出</option>
+            <option value="cp932" ${(diag.appliedEncoding === 'cp932') ? 'selected' : ''}>Shift-JIS (CP932)</option>
+            <option value="utf8" ${(diag.appliedEncoding === 'utf8') ? 'selected' : ''}>UTF-8</option>
+          </select>
+          <button type="button" class="btn" id="retry-encoding-btn">再読み込み</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Action buttons
+  html += `
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
+      <a href="/new" class="btn">戻る</a>
+    </div>
+  `;
+
+  app.innerHTML = html;
+
+  // Wire up radio button interactions
+  document.querySelectorAll('input[name="file-type-choice"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.querySelectorAll('.confirm-choice-card').forEach(c => c.classList.remove('selected'));
+      radio.closest('.confirm-choice-card').classList.add('selected');
+      // Show/hide alt selection
+      const altList = document.querySelector('.confirm-alt-list');
+      if (altList) altList.style.display = radio.value === 'alt' ? '' : 'none';
+    });
+  });
+
+  // Retry encoding button
+  const retryBtn = document.getElementById('retry-encoding-btn');
+  if (retryBtn) {
+    retryBtn.addEventListener('click', async () => {
+      const enc = document.getElementById('retry-encoding').value;
+      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
       try {
-        const runId = document.getElementById('review-run-select').value;
-        const review = await api('/api/reviews', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ runId }),
-        });
-        // Set reviewer if provided
-        const reviewer = document.getElementById('review-reviewer').value.trim();
-        if (reviewer) {
-          await api(`/api/reviews/${review.id}/summary`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reviewer }),
-          });
+        if (data.filePath) {
+          const newData = await api(`/api/preview?file=${encodeURIComponent(data.filePath)}&encoding=${enc}&hasHeader=${hasHeader}&rows=10`);
+          pendingConfirmation = {
+            ...data,
+            diagnosis: newData.diagnosis || data.diagnosis,
+            previewRows: newData.sampleRows || [],
+            columns: newData.columns || [],
+            profileMatch: matchProfileClient(data.filename, newData.columns || [], pendingConfirmation.profileMatch),
+          };
+        } else {
+          // Re-upload for uploaded files
+          const formData = new FormData();
+          formData.append('file', data.formState.uploadedFiles?.[0] || uploadedFiles[0]);
+          formData.append('encoding', enc);
+          formData.append('hasHeader', hasHeader ? 'true' : 'false');
+          const res = await fetch('/api/upload-identify', { method: 'POST', body: formData });
+          const newData = await res.json();
+          pendingConfirmation = {
+            ...newData,
+            formState: data.formState,
+          };
         }
-        navigate(`/reviews/${review.id}/columns`);
+        renderConfirmPage();
       } catch (err) {
-        status.textContent = `エラー: ${err.message}`;
-        status.style.color = 'var(--danger)';
-        btn.disabled = false;
+        alert('再読み込みに失敗しました: ' + err.message);
       }
     });
-
-    // Show existing reviews
-    if (reviews.length > 0) {
-      const revContainer = document.getElementById('existing-reviews');
-      revContainer.style.display = '';
-      let revHtml = '<h3>既存レビュー</h3><div class="run-list">';
-      for (const rev of reviews) {
-        const statusBadge = rev.reviewStatus === 'draft'
-          ? '<span class="badge badge-warning">下書き</span>'
-          : rev.reviewStatus === 'reviewed'
-            ? '<span class="badge badge-info">レビュー済</span>'
-            : rev.reviewStatus === 'needs_owner_review'
-              ? '<span class="badge badge-warning">オーナー確認待ち</span>'
-              : `<span class="badge">${rev.reviewStatus}</span>`;
-        const time = new Date(rev.updatedAt).toLocaleString('ja-JP');
-        revHtml += `
-          <a href="/reviews/${rev.id}/columns" class="run-item">
-            <span class="run-mode">${escapeHtml(rev.fileName)}</span>
-            ${statusBadge}
-            <span class="run-files">${rev.reviewer || '—'}</span>
-            <span class="run-time">${time}</span>
-          </a>
-        `;
-      }
-      revHtml += '</div>';
-      revContainer.innerHTML = revHtml;
-    }
-  } catch (err) {
-    document.getElementById('review-step1').innerHTML = `<p class="empty">読み込みに失敗: ${err.message}</p>`;
   }
-}
 
-// --- Review Step 2: Column review ---
+  // Proceed button
+  const proceedBtn = document.getElementById('confirm-proceed-btn');
+  if (proceedBtn) {
+    proceedBtn.addEventListener('click', async () => {
+      const choice = document.querySelector('input[name="file-type-choice"]:checked')?.value;
+      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+      const fs = data.formState;
 
-async function renderReviewStep2(reviewId) {
-  app.innerHTML = `${renderStepper(2)}<div class="loading">読み込み中...</div>`;
-
-  try {
-    const review = await api(`/api/reviews/${reviewId}`);
-
-    const decidedCount = review.columns.filter(c => c.decision !== 'unknown' || c.humanSemanticField).length;
-
-    let html = renderStepper(2);
-    html += `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="font-size:18px">カラムレビュー — ${escapeHtml(review.fileName)}</h2>
-        <div class="btn-group">
-          <button class="btn" id="btn-save-cols">一時保存</button>
-          <button class="btn btn-primary" id="btn-next-summary">サマリへ進む</button>
-        </div>
-      </div>
-      <div class="review-progress-bar">
-        <span>${decidedCount} / ${review.columns.length} 列回答済み</span>
-        <span class="badge badge-warning">${review.reviewStatus}</span>
-      </div>
-    `;
-
-    // Column cards
-    for (let i = 0; i < review.columns.length; i++) {
-      const col = review.columns[i];
-      const sug = col.suggestion;
-      const confidenceClass = `confidence-${sug.confidence}`;
-
-      html += `
-        <div class="review-col-card" data-idx="${i}">
-          <div class="col-header">
-            <span class="col-name">${escapeHtml(col.sourceColumn)}</span>
-            <span class="col-stats">欠損率: ${(col.missingRate * 100).toFixed(1)}% | ユニーク: ${col.uniqueCount}</span>
-          </div>
-          <div class="sample-values">
-            ${col.sampleValues.map(v => `<span class="sample-chip" title="${escapeHtml(v)}">${escapeHtml(truncate(v, 30))}</span>`).join('')}
-          </div>
-          <div class="suggestion-row">
-            提案: <span class="badge ${confidenceClass}">${sug.confidence}</span>
-            ${escapeHtml(sug.semanticField)} / ${escapeHtml(sug.fieldFamily)} / ${escapeHtml(sug.section)}
-            <span style="color:var(--text-secondary);font-size:11px">— ${escapeHtml(sug.reason)}</span>
-          </div>
-          <div class="input-row">
-            <div>
-              <label>セマンティック名</label>
-              <input type="text" class="rc-semantic" value="${escapeHtml(col.humanSemanticField || sug.semanticField)}" data-idx="${i}">
-            </div>
-            <div>
-              <label>フィールド分類</label>
-              <select class="rc-family" data-idx="${i}">
-                ${selectOptions(FIELD_FAMILIES, col.humanFieldFamily || sug.fieldFamily)}
-              </select>
-            </div>
-            <div>
-              <label>セクション</label>
-              <select class="rc-section" data-idx="${i}">
-                ${selectOptions(SECTIONS, col.humanSection || sug.section)}
-              </select>
-            </div>
-          </div>
-          <div class="decision-row">
-            ${DECISIONS.map(d => `
-              <label>
-                <input type="radio" name="decision-${i}" value="${d.value}" class="rc-decision"
-                  data-idx="${i}" ${col.decision === d.value ? 'checked' : ''}>
-                ${d.label}
-              </label>
-            `).join('')}
-          </div>
-        </div>
-      `;
-    }
-
-    app.innerHTML = html;
-
-    // Gather current state from form
-    function gatherColumnUpdates() {
-      const updates = [];
-      for (let i = 0; i < review.columns.length; i++) {
-        const semantic = document.querySelector(`.rc-semantic[data-idx="${i}"]`).value.trim();
-        const family = document.querySelector(`.rc-family[data-idx="${i}"]`).value;
-        const section = document.querySelector(`.rc-section[data-idx="${i}"]`).value;
-        const decisionEl = document.querySelector(`input.rc-decision[data-idx="${i}"]:checked`);
-        const decision = decisionEl ? decisionEl.value : 'unknown';
-        updates.push({
-          sourceColumn: review.columns[i].sourceColumn,
-          humanSemanticField: semantic,
-          humanFieldFamily: family,
-          humanSection: section,
-          decision,
-        });
-      }
-      return updates;
-    }
-
-    async function saveColumns() {
-      const updates = gatherColumnUpdates();
-      await api(`/api/reviews/${reviewId}/columns`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-    }
-
-    document.getElementById('btn-save-cols').addEventListener('click', async () => {
-      const btn = document.getElementById('btn-save-cols');
-      btn.disabled = true;
-      btn.textContent = '保存中...';
-      try {
-        await saveColumns();
-        btn.textContent = '保存しました';
-        setTimeout(() => { btn.textContent = '一時保存'; btn.disabled = false; }, 1500);
-      } catch (err) {
-        btn.textContent = `エラー: ${err.message}`;
-        btn.disabled = false;
-      }
-    });
-
-    document.getElementById('btn-next-summary').addEventListener('click', async () => {
-      try {
-        await saveColumns();
-        navigate(`/reviews/${reviewId}/summary`);
-      } catch (err) {
-        alert('保存に失敗しました: ' + err.message);
-      }
-    });
-
-  } catch (err) {
-    app.innerHTML = `<div class="card"><p class="empty">読み込みに失敗: ${err.message}</p></div>`;
-  }
-}
-
-// --- Review Step 3: Summary / bundle output ---
-
-async function renderReviewStep3(reviewId) {
-  app.innerHTML = `${renderStepper(3)}<div class="loading">読み込み中...</div>`;
-
-  try {
-    const review = await api(`/api/reviews/${reviewId}`);
-
-    const accepted = review.columns.filter(c => c.decision === 'accepted').length;
-    const adjusted = review.columns.filter(c => c.decision === 'adjusted').length;
-    const unknown = review.columns.filter(c => c.decision === 'unknown').length;
-    const unused = review.columns.filter(c => c.decision === 'unused').length;
-    const diffs = review.columns.filter(c =>
-      c.humanSemanticField && c.humanSemanticField !== c.suggestion.semanticField
-    );
-
-    let html = renderStepper(3);
-    html += `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="font-size:18px">サマリ確認 — ${escapeHtml(review.fileName)}</h2>
-        <a href="/reviews/${reviewId}/columns" class="btn">カラムレビューに戻る</a>
-      </div>
-
-      <div class="card">
-        <h2>回答サマリ</h2>
-        <div class="stats">
-          <div class="stat"><div class="label">全カラム</div><div class="value">${review.columns.length}</div></div>
-          <div class="stat"><div class="label">承認</div><div class="value">${accepted}</div></div>
-          <div class="stat"><div class="label">修正</div><div class="value">${adjusted}</div></div>
-          <div class="stat"><div class="label">不明</div><div class="value">${unknown}</div></div>
-          <div class="stat"><div class="label">不使用</div><div class="value">${unused}</div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>ファイル情報</h2>
-        <div class="form-group">
-          <label>ファイルタイプ</label>
-          <select id="rs-filetype">
-            <option value="">（未選択）</option>
-            ${selectOptions(FILE_TYPES, review.primaryFileType)}
-          </select>
-        </div>
-        <div class="form-group">
-          <label>混合 Family（該当するものを選択）</label>
-          <div class="chip-group" id="rs-mixed">
-            ${FIELD_FAMILIES.map(f => `
-              <label>
-                <input type="checkbox" value="${f.value}" ${(review.mixedFamilies || []).includes(f.value) ? 'checked' : ''}>
-                ${f.label}
-              </label>
-            `).join('')}
-          </div>
-        </div>
-        <div class="form-group">
-          <label>レビュー担当者</label>
-          <input type="text" id="rs-reviewer" value="${escapeHtml(review.reviewer || '')}" style="max-width:300px">
-        </div>
-        <div class="form-group">
-          <label>メモ（任意）</label>
-          <textarea id="rs-notes" rows="3">${escapeHtml(review.notes || '')}</textarea>
-        </div>
-        <div class="form-group">
-          <label>レビューステータス</label>
-          <select id="rs-status">
-            <option value="draft" ${review.reviewStatus === 'draft' ? 'selected' : ''}>下書き</option>
-            <option value="reviewed" ${review.reviewStatus === 'reviewed' ? 'selected' : ''}>レビュー済み</option>
-            <option value="needs_owner_review" ${review.reviewStatus === 'needs_owner_review' ? 'selected' : ''}>オーナー確認待ち</option>
-          </select>
-        </div>
-      </div>
-    `;
-
-    // Diff table
-    html += `<div class="card"><h2>カラム一覧</h2>`;
-    html += '<div class="table-wrap" style="max-height:500px;overflow:auto">';
-    html += '<table><thead><tr><th>#</th><th>元カラム</th><th>提案</th><th>回答</th><th>Family</th><th>Section</th><th>判定</th></tr></thead><tbody>';
-    review.columns.forEach((col, i) => {
-      const human = col.humanSemanticField || '—';
-      const isOverride = col.humanSemanticField && col.humanSemanticField !== col.suggestion.semanticField;
-      const cls = isOverride ? ' class="diff-row-override"' : '';
-      const family = col.humanFieldFamily || col.suggestion.fieldFamily;
-      const section = col.humanSection || col.suggestion.section;
-      const decLabel = DECISIONS.find(d => d.value === col.decision)?.label || col.decision;
-      html += `<tr${cls}><td>${i + 1}</td><td>${escapeHtml(col.sourceColumn)}</td><td>${escapeHtml(col.suggestion.semanticField)}</td><td>${escapeHtml(human)}</td><td>${escapeHtml(family)}</td><td>${escapeHtml(section)}</td><td>${escapeHtml(decLabel)}</td></tr>`;
-    });
-    html += '</tbody></table></div></div>';
-
-    // Unknown/unused highlight
-    if (unknown > 0 || unused > 0) {
-      html += '<div class="card">';
-      if (unknown > 0) {
-        html += `<h3>不明カラム (${unknown})</h3><ul class="file-list">`;
-        review.columns.filter(c => c.decision === 'unknown').forEach(c => {
-          html += `<li>${escapeHtml(c.sourceColumn)}</li>`;
-        });
-        html += '</ul>';
-      }
-      if (unused > 0) {
-        html += `<h3 style="margin-top:12px">不使用カラム (${unused})</h3><ul class="file-list">`;
-        review.columns.filter(c => c.decision === 'unused').forEach(c => {
-          html += `<li>${escapeHtml(c.sourceColumn)}</li>`;
-        });
-        html += '</ul>';
-      }
-      html += '</div>';
-    }
-
-    // Actions
-    html += `
-      <div class="card">
-        <div style="display:flex;gap:8px;align-items:center">
-          <button class="btn btn-primary" id="btn-finalize">バンドル出力</button>
-          <button class="btn" id="btn-save-summary">一時保存</button>
-          <button class="btn btn-danger" id="btn-delete-review">削除</button>
-          <span id="rs-action-status" style="font-size:13px;color:var(--text-secondary);margin-left:8px"></span>
-        </div>
-        <div id="bundle-files" style="margin-top:16px;display:none"></div>
-      </div>
-    `;
-
-    app.innerHTML = html;
-
-    // Gather summary form data
-    function gatherSummary() {
-      const mixedEls = document.querySelectorAll('#rs-mixed input:checked');
-      const mixedFamilies = Array.from(mixedEls).map(el => el.value);
-      return {
-        primaryFileType: document.getElementById('rs-filetype').value || null,
-        mixedFamilies,
-        reviewer: document.getElementById('rs-reviewer').value.trim(),
-        notes: document.getElementById('rs-notes').value.trim(),
-        reviewStatus: document.getElementById('rs-status').value,
+      // Update ingest options with confirmed header
+      const ingestOptions = {
+        encoding: document.getElementById('retry-encoding')?.value || fs.encoding,
+        delimiter: fs.delimiter,
+        hasHeader,
       };
-    }
 
-    async function saveSummary() {
-      await api(`/api/reviews/${reviewId}/summary`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(gatherSummary()),
-      });
-    }
+      // Determine selected profile
+      let selectedProfileId = null;
+      if (choice === 'known' && pm.profile) {
+        selectedProfileId = pm.profile.id;
+      } else if (choice === 'alt') {
+        selectedProfileId = document.getElementById('alt-profile-select')?.value;
+      }
+      // choice === 'new' → no profile
 
-    document.getElementById('btn-save-summary').addEventListener('click', async () => {
-      const status = document.getElementById('rs-action-status');
+      proceedBtn.disabled = true;
+      proceedBtn.textContent = '実行中...';
+
       try {
-        await saveSummary();
-        status.textContent = '保存しました';
-        status.style.color = 'var(--success)';
-        setTimeout(() => { status.textContent = ''; }, 2000);
+        let result;
+        if (data.filePath && !fs.uploadedFiles?.length) {
+          // Local path execution
+          result = await api('/api/runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              mode: fs.mode,
+              configPath: fs.configPath,
+              filePaths: [data.filePath],
+              ingestOptions,
+            }),
+          });
+        } else {
+          // Uploaded file execution
+          const formData = new FormData();
+          formData.append('mode', fs.mode);
+          if (fs.configPath) formData.append('configPath', fs.configPath);
+          if (fs.uploadedFiles) {
+            for (const f of fs.uploadedFiles) formData.append('files', f);
+          } else {
+            for (const f of uploadedFiles) formData.append('files', f);
+          }
+          if (fs.filePathsText?.length > 0) {
+            formData.append('filePaths', JSON.stringify(fs.filePathsText));
+          }
+          formData.append('ingestOptions', JSON.stringify(ingestOptions));
+
+          const res = await fetch('/api/runs', { method: 'POST', body: formData });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.error || `HTTP ${res.status}`);
+          }
+          result = await res.json();
+        }
+
+        // If new file → go to column review; if known file → go to run detail
+        if (choice === 'new') {
+          pendingConfirmation = {
+            ...data,
+            runId: result.id,
+            selectedProfileId: null,
+          };
+          navigate(`/runs/${result.id}/columns`);
+        } else if (selectedProfileId) {
+          pendingConfirmation = {
+            ...data,
+            runId: result.id,
+            selectedProfileId,
+          };
+          navigate(`/runs/${result.id}/columns`);
+        } else {
+          navigate(`/runs/${result.id}`);
+        }
       } catch (err) {
-        status.textContent = `エラー: ${err.message}`;
-        status.style.color = 'var(--danger)';
+        proceedBtn.disabled = false;
+        proceedBtn.textContent = '確認して実行';
+        alert('実行に失敗しました: ' + err.message);
       }
     });
-
-    document.getElementById('btn-finalize').addEventListener('click', async () => {
-      const btn = document.getElementById('btn-finalize');
-      const status = document.getElementById('rs-action-status');
-      btn.disabled = true;
-      status.textContent = 'バンドル生成中...';
-      status.style.color = 'var(--text-secondary)';
-      try {
-        await saveSummary();
-        const result = await api(`/api/reviews/${reviewId}/finalize`, { method: 'POST' });
-        status.textContent = '保存完了 — レビュー結果は常設PCに自動保存されました';
-        status.style.color = 'var(--success)';
-        // Show files and save location
-        const filesDiv = document.getElementById('bundle-files');
-        filesDiv.style.display = '';
-        let filesHtml = `
-          <div style="background:var(--bg);border:1px solid var(--success);border-radius:var(--radius);padding:12px;margin-bottom:12px">
-            <strong style="color:var(--success)">保存済み</strong>
-            <span style="font-size:12px;color:var(--text-secondary)"> — このレビュー結果は自動保存されました。追加の送信や添付は不要です。</span>
-            ${result.savedTo ? `<br><span style="font-size:11px;color:var(--text-secondary)">保存先: ${escapeHtml(result.savedTo)}</span>` : ''}
-          </div>
-          <h3>出力ファイル</h3>
-          <ul class="file-list">
-            ${result.files.map(f => `<li><a href="/api/reviews/${reviewId}/raw/${f}" target="_blank">${f}</a></li>`).join('')}
-          </ul>
-        `;
-        filesDiv.innerHTML = filesHtml;
-      } catch (err) {
-        status.textContent = `エラー: ${err.message}`;
-        status.style.color = 'var(--danger)';
-        btn.disabled = false;
-      }
-    });
-
-    document.getElementById('btn-delete-review').addEventListener('click', async () => {
-      if (!confirm('このレビューを削除しますか？')) return;
-      try {
-        await api(`/api/reviews/${reviewId}`, { method: 'DELETE' });
-        navigate('/reviews/new');
-      } catch (err) {
-        alert('削除に失敗: ' + err.message);
-      }
-    });
-
-  } catch (err) {
-    app.innerHTML = `<div class="card"><p class="empty">読み込みに失敗: ${err.message}</p></div>`;
   }
+}
+
+// Simple client-side matching helper (preserves server match if available)
+function matchProfileClient(filename, columns, existingMatch) {
+  return existingMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
+}
+
+// --- Column Review Page ---
+
+async function renderColumnReview(runId) {
+  const data = pendingConfirmation || {};
+  const selectedProfileId = data.selectedProfileId;
+  const columns = data.columns || [];
+
+  // Load profile if known
+  let profile = null;
+  if (selectedProfileId) {
+    try { profile = await api(`/api/profiles/${selectedProfileId}`); } catch { /* ignore */ }
+  }
+
+  // Load existing review if any
+  let existingReview = null;
+  if (selectedProfileId) {
+    try {
+      const r = await api(`/api/column-reviews/${runId}/${selectedProfileId || 'new'}`);
+      existingReview = r.reviews;
+    } catch { /* ignore */ }
+  }
+
+  // Load preview data from the run
+  let previewRows = data.previewRows || [];
+  if (previewRows.length === 0) {
+    try {
+      const rd = await api(`/api/runs/${runId}/source-data?offset=0&limit=5`);
+      previewRows = rd.rows || [];
+      if (columns.length === 0 && rd.columns) columns.push(...rd.columns);
+    } catch { /* ignore */ }
+  }
+
+  // Build column entries
+  const entries = columns.map((col, i) => {
+    const profileCol = profile?.columns?.find(c => c.position === i);
+    const existing = existingReview?.find(r => r.position === i);
+    // Sample values for this column
+    const samples = previewRows.slice(0, 5).map(r => r[col]).filter(Boolean);
+
+    return {
+      position: i,
+      headerName: col,
+      profileLabel: profileCol?.label || '',
+      profileKey: profileCol?.key || '',
+      profileRequired: profileCol?.required ?? false,
+      profileRule: profileCol?.rule || '',
+      samples,
+      // Current review values
+      meaning: existing?.meaning ?? profileCol?.label ?? '',
+      inUse: existing?.inUse ?? 'unknown',
+      required: existing?.required ?? (profileCol?.required ? 'yes' : 'unknown'),
+      rule: existing?.rule ?? profileCol?.rule ?? '',
+    };
+  });
+
+  let html = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px">列の確認</h2>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="save-review-btn">保存</button>
+        <a href="/runs/${escapeHtml(runId)}" class="btn">あとで続ける</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+        ${profile ? `「<strong>${escapeHtml(profile.label)}</strong>」の列を確認してください。` : '各列の意味を教えてください。'}
+        ${profile?.provisional ? '<span class="badge badge-warning">仮の定義です — 確認をお願いします</span>' : ''}
+      </p>
+      <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">
+        わからない場合は、そのままで大丈夫です。あとから修正できます。
+      </p>
+  `;
+
+  for (const entry of entries) {
+    html += `
+      <div class="column-review-item" data-position="${entry.position}">
+        <div class="column-review-header">
+          <span class="badge badge-info">${entry.position + 1}列目</span>
+          <strong>${escapeHtml(entry.headerName)}</strong>
+          ${entry.profileLabel ? `<span style="font-size:12px;color:var(--text-secondary)">（候補: ${escapeHtml(entry.profileLabel)}）</span>` : ''}
+        </div>
+
+        ${entry.samples.length > 0 ? `
+          <div style="margin:6px 0 8px 0;font-size:12px;color:var(--text-secondary)">
+            例: ${entry.samples.slice(0, 3).map(s => `<code style="background:var(--bg);padding:1px 4px;border-radius:2px">${escapeHtml(truncate(s, 30))}</code>`).join(', ')}
+          </div>
+        ` : ''}
+
+        <div class="column-review-fields">
+          <div class="column-review-field">
+            <label>この列は何を入れる場所ですか？</label>
+            <input type="text" class="col-meaning" value="${escapeHtml(entry.meaning)}" placeholder="例: 会社名、電話番号 など">
+          </div>
+          <div class="column-review-field">
+            <label>今も使いますか？</label>
+            <select class="col-inuse">
+              <option value="unknown" ${entry.inUse === 'unknown' ? 'selected' : ''}>わからない</option>
+              <option value="yes" ${entry.inUse === 'yes' ? 'selected' : ''}>はい</option>
+              <option value="no" ${entry.inUse === 'no' ? 'selected' : ''}>いいえ（不要）</option>
+            </select>
+          </div>
+          <div class="column-review-field">
+            <label>必須ですか？</label>
+            <select class="col-required">
+              <option value="unknown" ${entry.required === 'unknown' ? 'selected' : ''}>わからない</option>
+              <option value="yes" ${entry.required === 'yes' ? 'selected' : ''}>はい（必須）</option>
+              <option value="no" ${entry.required === 'no' ? 'selected' : ''}>いいえ</option>
+            </select>
+          </div>
+          <div class="column-review-field">
+            <label>入力ルールがありますか？</label>
+            <input type="text" class="col-rule" value="${escapeHtml(entry.rule)}" placeholder="例: 半角数字のみ、日付形式 など">
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  html += `
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="btn btn-primary" id="save-review-btn-bottom">保存して結果を見る</button>
+      <a href="/runs/${escapeHtml(runId)}" class="btn">あとで続ける</a>
+    </div>
+  `;
+
+  app.innerHTML = html;
+
+  // Save review handler
+  const saveHandler = async () => {
+    const items = document.querySelectorAll('.column-review-item');
+    const reviews = [];
+    items.forEach(item => {
+      const pos = parseInt(item.dataset.position);
+      reviews.push({
+        position: pos,
+        label: columns[pos] || '',
+        key: entries[pos]?.profileKey || columns[pos] || '',
+        meaning: item.querySelector('.col-meaning')?.value || '',
+        inUse: item.querySelector('.col-inuse')?.value || 'unknown',
+        required: item.querySelector('.col-required')?.value || 'unknown',
+        rule: item.querySelector('.col-rule')?.value || '',
+      });
+    });
+
+    try {
+      await api(`/api/column-reviews/${runId}/${selectedProfileId || 'new'}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reviews }),
+      });
+      navigate(`/runs/${runId}`);
+    } catch (err) {
+      alert('保存に失敗しました: ' + err.message);
+    }
+  };
+
+  document.getElementById('save-review-btn')?.addEventListener('click', saveHandler);
+  document.getElementById('save-review-btn-bottom')?.addEventListener('click', saveHandler);
 }
 
 // --- Init ---
