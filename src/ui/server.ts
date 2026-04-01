@@ -18,6 +18,7 @@ import type { IngestOptions } from '../ingest/ingest-options.js';
 import {
   loadProfiles, getProfiles, getProfileById, matchProfile,
   saveProfiles, saveColumnReview, loadColumnReview,
+  buildCandidateProfile, saveCandidateProfile,
 } from '../file-profiles/index.js';
 import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
 import {
@@ -599,6 +600,42 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       res.json(meta);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : '実行に失敗しました' });
+    }
+  });
+
+  // --- API: 列レビューから candidate profile を生成・保存 ---
+  app.post('/api/runs/:id/save-candidate-profile', async (req, res) => {
+    try {
+      const runId = req.params.id;
+      const { profileId, label } = req.body as { profileId?: string; label?: string };
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId が必要です' });
+      }
+
+      const run = getRun(baseOutputDir, runId);
+      if (!run) return res.status(404).json({ error: 'Run が見つかりません' });
+
+      const em = loadEffectiveMapping(baseOutputDir, runId, profileId);
+      if (!em) {
+        return res.status(404).json({
+          error: '列レビューの回答が見つかりません。先に列の確認を保存してください。',
+        });
+      }
+
+      // 元ファイル名を basename で取得
+      const sourceFilename = run.inputFiles.length > 0
+        ? run.inputFiles[0].split('/').pop() ?? 'unknown.csv'
+        : 'unknown.csv';
+
+      const candidate = buildCandidateProfile(runId, sourceFilename, em, { label });
+      saveCandidateProfile(baseOutputDir, candidate);
+
+      // registry を更新（次回の matchProfile に反映）
+      loadProfiles(baseOutputDir);
+
+      res.json({ id: candidate.id, label: candidate.label, saved: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
     }
   });
 
