@@ -13,12 +13,15 @@ export type {
   ProfileMatchResult,
   UploadConfirmation,
 } from './types.js';
+export { isCandidateProfile, buildCandidateProfile, saveCandidateProfile } from './candidate-profile.js';
+export type { CandidateProfile } from './types.js';
 
 import { basename } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { SEED_PROFILES } from './seed-profiles.js';
 import type { FileProfile, ProfileMatchResult, ColumnReviewEntry } from './types.js';
+import { loadAllCandidateProfiles } from './candidate-profile.js';
 
 // ---- Profile Registry ----
 
@@ -27,22 +30,31 @@ let registry: FileProfile[] = [...SEED_PROFILES];
 
 /** Load user-saved profiles from disk, merging with seeds */
 export function loadProfiles(dataDir: string): FileProfile[] {
+  // 1. seed をベースにする
+  let base: FileProfile[] = [...SEED_PROFILES];
+
+  // 2. user-saved profiles（file-profiles.json）でシードを上書き
   const filePath = join(dataDir, 'file-profiles.json');
   if (existsSync(filePath)) {
     try {
       const saved: FileProfile[] = JSON.parse(readFileSync(filePath, 'utf-8'));
-      // Merge: user-saved override seeds by id
       const savedIds = new Set(saved.map(p => p.id));
-      registry = [
+      base = [
         ...saved,
         ...SEED_PROFILES.filter(s => !savedIds.has(s.id)),
       ];
     } catch {
-      registry = [...SEED_PROFILES];
+      base = [...SEED_PROFILES];
     }
-  } else {
-    registry = [...SEED_PROFILES];
   }
+
+  // 3. candidate profiles（candidate-profiles/*.json）を追加
+  // candidate の ID は "candidate-{runId}-{profileId}" なので seed と衝突しない
+  const candidates = loadAllCandidateProfiles(dataDir);
+  const baseIds = new Set(base.map(p => p.id));
+  const newCandidates = candidates.filter(c => !baseIds.has(c.id));
+
+  registry = [...base, ...newCandidates];
   return registry;
 }
 
