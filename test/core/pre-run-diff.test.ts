@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { buildPreRunDiffPreview } from '../../src/core/pre-run-diff.js';
+import { buildPreRunDiffPreview, buildColumnsDriftContext } from '../../src/core/pre-run-diff.js';
 import { executeRun } from '../../src/core/pipeline-runner.js';
 import { loadConfig } from '../../src/config/defaults.js';
 import { join } from 'node:path';
@@ -236,5 +236,117 @@ describe('buildPreRunDiffPreview', () => {
       columnCount: r1.summary?.columnCount ?? 1,
     });
     expect(result.previousRunId).not.toBeNull();
+  });
+});
+
+describe('buildColumnsDriftContext', () => {
+  let config: ReturnType<typeof loadConfig>;
+
+  beforeAll(() => {
+    config = loadConfig();
+    config.outputDir = OUTPUT;
+    mkdirSync(OUTPUT, { recursive: true });
+  });
+
+  afterAll(() => {
+    if (existsSync(OUTPUT)) rmSync(OUTPUT, { recursive: true, force: true });
+  });
+
+  it('previousRunId がない run では null を返す', () => {
+    const result = buildColumnsDriftContext(OUTPUT, 'nonexistent-run-id');
+    expect(result).toBeNull();
+  });
+
+  it('comparable previous run がある場合に drift context を返す', async () => {
+    const file = join(F, 'utf8.csv');
+    const r1 = await executeRun('profile', [file], config);
+    expect(r1.status).toBe('completed');
+
+    const r2 = await executeRun('profile', [file], config);
+    expect(r2.status).toBe('completed');
+    expect(r2.previousRunId).toBe(r1.id);
+
+    const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.version).toBe(1);
+    expect(ctx!.previousRunId).toBe(r1.id);
+    expect(Array.isArray(ctx!.currentColumnNames)).toBe(true);
+  });
+
+  it('列が変わっていない場合 addedColumns と removedColumns が空', async () => {
+    const file = join(F, 'utf8.csv');
+    const r1 = await executeRun('profile', [file], config);
+    const r2 = await executeRun('profile', [file], config);
+
+    const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.addedColumns).toHaveLength(0);
+    expect(ctx!.removedColumns).toHaveLength(0);
+  });
+
+  it('addedColumns / removedColumns が正しく計算される（columnNames を直接書き換えて検証）', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const file = join(F, 'utf8.csv');
+
+    const r1 = await executeRun('profile', [file], config);
+    const r1Meta = { ...r1, columnNames: ['氏名', '電話番号', '住所'] };
+    writeFileSync(`${r1.outputDir}/run-meta.json`, JSON.stringify(r1Meta, null, 2), 'utf-8');
+
+    const r2 = await executeRun('profile', [file], config);
+    const r2Meta = { ...r2, previousRunId: r1.id, columnNames: ['氏名', '電話番号', '会社名'] };
+    writeFileSync(`${r2.outputDir}/run-meta.json`, JSON.stringify(r2Meta, null, 2), 'utf-8');
+
+    const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.addedColumns).toEqual(['会社名']);
+    expect(ctx!.removedColumns).toEqual(['住所']);
+  });
+
+  it('comparable previous run はあるが columnNames が未保存の場合 addedColumns / removedColumns は空', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const file = join(F, 'utf8.csv');
+
+    // r1 を作成して columnNames を削除（古い run を模倣）
+    const r1 = await executeRun('profile', [file], config);
+    const r1Meta = { ...r1 };
+    delete (r1Meta as Partial<typeof r1Meta>).columnNames;
+    writeFileSync(`${r1.outputDir}/run-meta.json`, JSON.stringify(r1Meta, null, 2), 'utf-8');
+
+    // r2 を作成して previousRunId を r1 に明示的に設定（タイムスタンプ衝突対策）
+    const r2 = await executeRun('profile', [file], config);
+    const r2Meta = { ...r2, previousRunId: r1.id };
+    writeFileSync(`${r2.outputDir}/run-meta.json`, JSON.stringify(r2Meta, null, 2), 'utf-8');
+
+    const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.previousColumnNames).toBeNull();
+    expect(ctx!.addedColumns).toHaveLength(0);
+    expect(ctx!.removedColumns).toHaveLength(0);
+  });
+
+  it('schema drift warning が表示された場合 schemaDriftWarningShown が true', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const file = join(F, 'utf8.csv');
+    const r1 = await executeRun('profile', [file], config);
+    const r2 = await executeRun('profile', [file], config, undefined, {
+      schemaDriftWarningShown: true,
+    });
+    // previousRunId が r1 を指すよう明示的に設定（タイムスタンプ衝突対策）
+    const r2Meta = { ...r2, previousRunId: r1.id };
+    writeFileSync(`${r2.outputDir}/run-meta.json`, JSON.stringify(r2Meta, null, 2), 'utf-8');
+
+    const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.schemaDriftWarningShown).toBe(true);
+  });
+
+  it('schema drift warning がない場合 schemaDriftWarningShown が false', async () => {
+    const file = join(F, 'utf8.csv');
+    await executeRun('profile', [file], config);
+    const r2 = await executeRun('profile', [file], config);
+
+    const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
+    expect(ctx).not.toBeNull();
+    expect(ctx!.schemaDriftWarningShown).toBe(false);
   });
 });
