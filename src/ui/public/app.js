@@ -791,6 +791,7 @@ async function renderRunDetail(runId) {
 
     // 列確認カードを非同期でロード
     loadColumnStatusCard(runId);
+    loadRunDiffCard(runId);
 
     // Delete button
     document.getElementById('btn-delete').addEventListener('click', async () => {
@@ -886,6 +887,62 @@ async function loadColumnStatusCard(runId) {
       summaryCard.insertAdjacentHTML('afterend', cardHtml);
     }
   } catch { /* ignore — column status is optional */ }
+}
+
+// --- 前回との比較カード (run detail) ---
+
+async function loadRunDiffCard(runId) {
+  try {
+    const diff = await api(`/api/runs/${runId}/diff`);
+    if (!diff || diff.classification === 'no_comparable') return;
+
+    const diffLabel = escapeHtml(diff.classificationLabel || '比較対象なし');
+    const prevId = diff.previousRunId ? escapeHtml(diff.previousRunId) : '';
+    const rowDelta = diff.totals ? diff.totals.recordCountDelta : 0;
+    const rowSign = rowDelta > 0 ? '+' : '';
+    const prevCount = typeof diff.rowCountPrev === 'number' ? diff.rowCountPrev.toLocaleString() : '—';
+    const currCount = typeof diff.rowCountCurr === 'number' ? diff.rowCountCurr.toLocaleString() : '—';
+    const colDelta = (diff.columnCountCurr || 0) - (diff.columnCountPrev || 0);
+    const colDeltaText = colDelta === 0 ? '変化なし' : `${colDelta > 0 ? '+' : ''}${colDelta} 列`;
+    const rowDeltaColor = rowDelta > 0 ? 'var(--success,#22c55e)' : rowDelta < 0 ? 'var(--danger)' : 'inherit';
+    const rowDeltaText = rowDelta === 0 ? '変化なし' : `${rowSign}${rowDelta.toLocaleString()}`;
+
+    let colChangesHtml = '';
+    if (diff.addedColumns && diff.addedColumns.length > 0) {
+      colChangesHtml += `<p style="font-size:12px;margin-top:4px">追加された列: ${diff.addedColumns.map(escapeHtml).join('、')}</p>`;
+    }
+    if (diff.removedColumns && diff.removedColumns.length > 0) {
+      colChangesHtml += `<p style="font-size:12px;margin-top:4px">削除された列: ${diff.removedColumns.map(escapeHtml).join('、')}</p>`;
+    }
+
+    const cardHtml = `
+      <div class="card" id="run-diff-card">
+        <h2>前回との比較</h2>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+          比較対象: <a href="/runs/${prevId}">${prevId}</a>
+        </p>
+        <p style="font-size:14px;font-weight:600;margin-bottom:8px">${diffLabel}</p>
+        <div class="stats" style="margin-bottom:8px">
+          <div class="stat">
+            <div class="label">件数の変化</div>
+            <div class="value" style="color:${rowDeltaColor}">${rowDeltaText}</div>
+          </div>
+          <div class="stat"><div class="label">前回件数</div><div class="value">${prevCount}</div></div>
+          <div class="stat"><div class="label">今回件数</div><div class="value">${currCount}</div></div>
+          <div class="stat"><div class="label">列数の変化</div><div class="value">${colDeltaText}</div></div>
+        </div>
+        ${colChangesHtml}
+      </div>
+    `;
+
+    // サマリカードの直後に挿入
+    const summaryCard = app.querySelector('.card');
+    if (summaryCard) {
+      summaryCard.insertAdjacentHTML('afterend', cardHtml);
+    }
+  } catch {
+    // diff カードはオプション — エラーでも UI を壊さない
+  }
 }
 
 async function saveCandidateFromRun(runId, profileId) {
