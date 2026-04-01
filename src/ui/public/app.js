@@ -1183,6 +1183,56 @@ function truncate(str, maxLen) {
   return str.slice(0, maxLen - 3) + '...';
 }
 
+// --- Pre-run diff preview card ---
+
+function renderPreRunPreviewCard(preview) {
+  if (!preview) return '';
+
+  const cls = preview.classification;
+  const lbl = preview.classificationLabel || '';
+
+  let icon = '○';
+  let color = 'var(--text-secondary)';
+  let bgColor = 'var(--bg,#fff)';
+  if (cls === 'same_file') {
+    icon = '✓'; color = 'var(--success,#16a34a)'; bgColor = '#dcfce7';
+  } else if (cls === 'first_import') {
+    icon = '★'; color = '#6366f1'; bgColor = '#ede9fe';
+  } else if (cls === 'column_changed') {
+    icon = '!'; color = '#d97706'; bgColor = '#fef3c7';
+  } else if (cls === 'row_changed') {
+    icon = '↑'; color = '#2563eb'; bgColor = '#dbeafe';
+  }
+
+  let detailLines = '';
+  if (preview.previousRunId) {
+    if (preview.rowCountPrev !== null && preview.rowCountPrev !== undefined) {
+      detailLines += `<div style="font-size:12px;color:var(--text-secondary);margin-top:4px">前回の件数: <strong>${preview.rowCountPrev.toLocaleString('ja-JP')}件</strong></div>`;
+    }
+    if (preview.columnCountDelta !== null && preview.columnCountDelta !== undefined && preview.columnCountDelta !== 0) {
+      const sign = preview.columnCountDelta > 0 ? '+' : '';
+      detailLines += `<div style="font-size:12px;color:${color};margin-top:2px">列数の変化: <strong>${sign}${preview.columnCountDelta}列</strong>（前回 ${preview.columnCountPrev ?? '?'}列 → 今回 ${preview.columnCountCurr}列）</div>`;
+    } else if (preview.columnCountPrev !== null && preview.columnCountPrev !== undefined) {
+      detailLines += `<div style="font-size:12px;color:var(--text-secondary);margin-top:2px">列数: <strong>${preview.columnCountCurr}列</strong>（前回と同じ）</div>`;
+    }
+  }
+
+  let recommendHtml = '';
+  if (preview.columnReviewRecommended) {
+    recommendHtml = `<div style="margin-top:6px;font-size:12px;color:#d97706;font-weight:600">列の確認をおすすめします</div>`;
+  } else if (preview.fastPathRecommended) {
+    recommendHtml = `<div style="margin-top:6px;font-size:12px;color:var(--success,#16a34a)">「このまま進む」が使えます</div>`;
+  }
+
+  return `
+    <div class="card" style="background:${bgColor};border:1px solid ${color};padding:12px 16px" id="pre-run-preview-card">
+      <div style="font-size:13px;font-weight:600;color:${color}">${icon} ${escapeHtml(lbl)}</div>
+      ${detailLines}
+      ${recommendHtml}
+    </div>
+  `;
+}
+
 // --- Confirm Page (upload → identify → confirm) ---
 
 async function renderConfirmPage() {
@@ -1387,6 +1437,34 @@ async function renderConfirmPage() {
   }
 
   app.innerHTML = html;
+
+  // Pre-run preview: 比較対象カードを非同期取得してカードの前に差し込む
+  const preRunContainer = document.createElement('div');
+  preRunContainer.id = 'pre-run-preview-container';
+  // ファイル種別カード（最初の .card）の直後、ヘッダーチェックカード（2番目以降の .card）の前に挿入
+  const cards = app.querySelectorAll('.card');
+  const insertBefore = cards.length >= 2 ? cards[1] : null;
+  if (insertBefore) {
+    app.insertBefore(preRunContainer, insertBefore);
+  } else {
+    app.appendChild(preRunContainer);
+  }
+
+  (async () => {
+    try {
+      const params = new URLSearchParams({ filename: data.filename || '', columnCount: String((data.columns || []).length) });
+      if (data.sourceFileHash) params.set('sourceFileHash', data.sourceFileHash);
+      if (data.schemaFingerprint) params.set('schemaFingerprint', data.schemaFingerprint);
+      if (pm.profile && pm.profile.id) params.set('profileId', pm.profile.id);
+      if (diag.headerApplied !== undefined) params.set('hasHeader', diag.headerApplied ? 'true' : 'false');
+
+      const preview = await api(`/api/pre-run-preview?${params.toString()}`);
+      const container = document.getElementById('pre-run-preview-container');
+      if (container) container.outerHTML = renderPreRunPreviewCard(preview);
+    } catch {
+      // 取得失敗は無視 — confirm フローを止めない
+    }
+  })();
 
   // Wire up radio button interactions
   document.querySelectorAll('input[name="file-type-choice"]').forEach(radio => {
