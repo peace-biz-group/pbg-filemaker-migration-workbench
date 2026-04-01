@@ -27,6 +27,7 @@ import {
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
+import { buildPreRunDiffPreview } from '../core/pre-run-diff.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -187,7 +188,12 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         }
       }
 
-      const meta = await executeRun(mode, inputFiles, config, configPath);
+      const dupWarningShown = req.body.duplicateWarningShown === 'true' || req.body.duplicateWarningShown === true;
+      const dupOverride = req.body.duplicateOverride === 'true' || req.body.duplicateOverride === true;
+      const meta = await executeRun(mode, inputFiles, config, configPath, {
+        ...(dupWarningShown ? { duplicateWarningShown: true } : {}),
+        ...(dupOverride ? { duplicateOverride: true } : {}),
+      });
       res.json(meta);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
@@ -460,6 +466,8 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         previewRows: sampleRows,
         columns: ir.columns,
         profileMatch,
+        sourceFileHash: ir.sourceFileHash,
+        schemaFingerprint: ir.schemaFingerprint,
       });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'ファイルの読み取りに失敗しました' });
@@ -637,6 +645,25 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
     }
+  });
+
+  // --- API: Pre-run diff preview (confirm 段階で実行前に比較) ---
+  app.get('/api/pre-run-preview', (req, res) => {
+    const filename = String(req.query.filename ?? '');
+    if (!filename) {
+      return res.status(400).json({ error: 'filename は必須です' });
+    }
+    const sourceFileHash = req.query.sourceFileHash ? String(req.query.sourceFileHash) : undefined;
+    const schemaFingerprint = req.query.schemaFingerprint ? String(req.query.schemaFingerprint) : undefined;
+    const columnCount = req.query.columnCount ? (parseInt(String(req.query.columnCount), 10) || 0) : 0;
+
+    const preview = buildPreRunDiffPreview(baseOutputDir, {
+      filename,
+      sourceFileHash,
+      schemaFingerprint,
+      columnCount,
+    });
+    res.json(preview);
   });
 
   // --- API: List config files ---
