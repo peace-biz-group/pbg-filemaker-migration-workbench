@@ -98,4 +98,50 @@ describe('buildPreRunDiffPreview', () => {
     expect(result).toHaveProperty('classificationLabel');
     expect(result).toHaveProperty('duplicateWarning');
   });
+
+  it('duplicate warning を表示した上で override 実行すると run meta に記録される', async () => {
+    const file = join(F, 'utf8.csv');
+    const meta = await executeRun('profile', [file], {
+      ...config,
+      outputDir: OUTPUT,
+    }, undefined, {
+      duplicateWarningShown: true,
+      duplicateOverride: true,
+    });
+
+    expect(meta.status).toBe('completed');
+    expect(meta.duplicateWarningShown).toBe(true);
+    expect(meta.duplicateOverride).toBe(true);
+
+    // run-meta.json に永続化されていることを確認
+    const { readFileSync } = await import('node:fs');
+    const saved = JSON.parse(readFileSync(`${meta.outputDir}/run-meta.json`, 'utf-8'));
+    expect(saved.duplicateWarningShown).toBe(true);
+    expect(saved.duplicateOverride).toBe(true);
+  });
+
+  it('duplicateWarning なしの通常実行では duplicate フィールドが undefined になる', async () => {
+    const file = join(F, 'utf8.csv');
+    const meta = await executeRun('profile', [file], {
+      ...config,
+      outputDir: OUTPUT,
+    });
+
+    expect(meta.duplicateWarningShown).toBeUndefined();
+    expect(meta.duplicateOverride).toBeUndefined();
+  });
+
+  it('built-in profile と candidate profile で logicalSourceKey が一致し comparable run が見つかる', async () => {
+    // utf8.csv で実行
+    const file = join(F, 'utf8.csv');
+    const r1 = await executeRun('profile', [file], { ...config, outputDir: OUTPUT });
+    expect(r1.status).toBe('completed');
+
+    // 同じ filename で pre-run preview → comparable run が見つかるはず
+    const result = buildPreRunDiffPreview(OUTPUT, {
+      filename: 'utf8.csv',  // basename が同じ → logicalSourceKey が一致
+      columnCount: r1.summary?.columnCount ?? 1,
+    });
+    expect(result.previousRunId).not.toBeNull();
+  });
 });
