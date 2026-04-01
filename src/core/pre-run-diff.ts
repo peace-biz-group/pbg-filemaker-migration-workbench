@@ -7,7 +7,7 @@
  */
 
 import { basename } from 'node:path';
-import { listRuns } from './pipeline-runner.js';
+import { listRuns, getRun } from './pipeline-runner.js';
 import { logicalSourceKey } from '../ingest/fingerprint.js';
 
 export type PreRunClassification =
@@ -42,6 +42,13 @@ export interface PreRunDiffPreview {
    * 自動ブロックには使わず、UI での確認促進に使う。
    */
   duplicateWarning: boolean;
+  /**
+   * 列の形が変わっている可能性があるか。
+   * classification === 'column_changed' のときだけ true になる。
+   * fast path 抑制・confirm 画面での列確認誘導に使う。
+   * 自動ブロックには使わず、UI での確認促進に使う。
+   */
+  schemaDriftGuard: boolean;
 }
 
 export interface PreRunInput {
@@ -108,6 +115,7 @@ export function buildPreRunDiffPreview(
       classification: 'first_import',
       classificationLabel: CLASSIFICATION_LABELS['first_import'],
       duplicateWarning: false,
+      schemaDriftGuard: false,
     };
   }
 
@@ -149,5 +157,68 @@ export function buildPreRunDiffPreview(
     classification,
     classificationLabel: CLASSIFICATION_LABELS[classification],
     duplicateWarning: sameRawFingerprint === true,
+    schemaDriftGuard: classification === 'column_changed',
+  };
+}
+
+/**
+ * columns 画面向けの drift context。
+ * comparable previous run がある場合だけ生成する。
+ * previousRunId がない場合は null を返す。
+ */
+export interface ColumnsDriftContext {
+  version: 1;
+  /** 比較対象の前回 run ID */
+  previousRunId: string;
+  /** 前回の列名一覧。run-meta に columnNames がない場合は null */
+  previousColumnNames: string[] | null;
+  /** 今回の列名一覧 */
+  currentColumnNames: string[];
+  /** 今回増えた列（previous にはなく current にある） */
+  addedColumns: string[];
+  /** 前回あったが今回ない列 */
+  removedColumns: string[];
+  /** run meta に schemaDriftWarningShown=true が記録されているか */
+  schemaDriftWarningShown: boolean;
+}
+
+/**
+ * 指定 runId の columns 画面向け drift context を生成する。
+ *
+ * - previousRunId がない（初回 import） → null を返す
+ * - previousRunId があるが columnNames が両方取れない → addedColumns / removedColumns は空
+ * - 軽量判定のみ（row diff なし）
+ */
+export function buildColumnsDriftContext(
+  outputDir: string,
+  runId: string,
+): ColumnsDriftContext | null {
+  const meta = getRun(outputDir, runId);
+  if (!meta || !meta.previousRunId) return null;
+
+  const prevMeta = getRun(outputDir, meta.previousRunId);
+  if (!prevMeta) return null;
+
+  const currentColumnNames = meta.columnNames ?? [];
+  const previousColumnNames = prevMeta.columnNames ?? null;
+
+  let addedColumns: string[] = [];
+  let removedColumns: string[] = [];
+
+  if (previousColumnNames !== null && currentColumnNames.length > 0) {
+    const prevSet = new Set(previousColumnNames);
+    const currSet = new Set(currentColumnNames);
+    addedColumns = currentColumnNames.filter(c => !prevSet.has(c));
+    removedColumns = previousColumnNames.filter(c => !currSet.has(c));
+  }
+
+  return {
+    version: 1,
+    previousRunId: meta.previousRunId,
+    previousColumnNames,
+    currentColumnNames,
+    addedColumns,
+    removedColumns,
+    schemaDriftWarningShown: meta.schemaDriftWarningShown ?? false,
   };
 }
