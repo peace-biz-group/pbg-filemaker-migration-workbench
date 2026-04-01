@@ -58,6 +58,21 @@ export interface FileProfile {
   provisional: boolean;
 }
 
+/**
+ * 現場の列レビューから自動生成された「仮のファイル設定」。
+ * seed profile を直接上書きせず、独立した JSON として保存する。
+ */
+export interface CandidateProfile extends FileProfile {
+  /** candidate であることを示すフラグ（seed との判別用） */
+  candidate: true;
+  /** 生成元の run ID */
+  generatedFromRunId: string;
+  /** 生成日時（ISO 8601） */
+  generatedAt: string;
+  /** アップロード元のファイル名（UI 表示用） */
+  sourceFilename: string;
+}
+
 /** プロファイルマッチ結果 */
 export interface ProfileMatchResult {
   /** マッチしたプロファイル（null なら新規） */

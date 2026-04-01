@@ -18,8 +18,15 @@ import type { IngestOptions } from '../ingest/ingest-options.js';
 import {
   loadProfiles, getProfiles, getProfileById, matchProfile,
   saveProfiles, saveColumnReview, loadColumnReview,
+  buildCandidateProfile, saveCandidateProfile,
 } from '../file-profiles/index.js';
 import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
+import {
+  buildEffectiveMapping,
+  saveEffectiveMapping,
+  loadEffectiveMapping,
+  findEffectiveMappings,
+} from '../core/effective-mapping.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -500,8 +507,23 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       if (!Array.isArray(reviews)) {
         return res.status(400).json({ error: 'reviews は配列で指定してください' });
       }
+
+      // 列レビューを保存
       saveColumnReview(baseOutputDir, runId, profileId, reviews);
-      res.json({ ok: true });
+
+      // 実効 mapping を生成して保存
+      const profileDef = profileId !== 'new' ? getProfileById(profileId)?.columns ?? null : null;
+      const effectiveResult = buildEffectiveMapping(runId, profileId, reviews, profileDef);
+      saveEffectiveMapping(baseOutputDir, effectiveResult);
+
+      res.json({
+        ok: true,
+        effectiveSummary: {
+          activeCount: effectiveResult.activeCount,
+          unusedCount: effectiveResult.unusedCount,
+          pendingCount: effectiveResult.pendingCount,
+        },
+      });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
     }
@@ -513,6 +535,108 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     const reviews = loadColumnReview(baseOutputDir, runId, profileId);
     if (!reviews) return res.json({ reviews: null });
     res.json({ reviews });
+  });
+
+  // --- API: Get effective mapping for a run + profile ---
+  app.get('/api/column-reviews/:runId/:profileId/effective', (req, res) => {
+    const { runId, profileId } = req.params;
+    const result = loadEffectiveMapping(baseOutputDir, runId, profileId);
+    if (!result) return res.status(404).json({ error: '実効 mapping が見つかりません' });
+    res.json(result);
+  });
+
+  // --- API: Get column review status for a run (all saved profiles) ---
+  app.get('/api/runs/:id/column-status', (req, res) => {
+    const runId = req.params.id;
+    const mappings = findEffectiveMappings(baseOutputDir, runId);
+    if (mappings.length === 0) return res.json({ entries: [] });
+
+    const entries = mappings.map(m => {
+      const profile = m.profileId !== 'new' ? getProfileById(m.profileId) : null;
+      return {
+        profileId: m.profileId,
+        profileName: profile?.label ?? (m.profileId === 'new' ? '新規ファイル' : m.profileId),
+        activeCount: m.activeCount,
+        unusedCount: m.unusedCount,
+        pendingCount: m.pendingCount,
+        generatedAt: m.generatedAt,
+        columns: m.columns,
+      };
+    });
+    res.json({ entries });
+  });
+
+  // --- API: Re-run normalize with saved column review mapping ---
+  app.post('/api/runs/:id/rerun-with-review', async (req, res) => {
+    try {
+      const original = getRun(baseOutputDir, req.params.id);
+      if (!original) return res.status(404).json({ error: 'Run が見つかりません' });
+
+      const { profileId } = req.body as { profileId?: string };
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId が必要です' });
+      }
+
+      // 保存済みの実効 mapping を読み込む
+      const effectiveResult = loadEffectiveMapping(baseOutputDir, req.params.id, profileId);
+      if (!effectiveResult) {
+        return res.status(404).json({
+          error: '列レビューの回答が見つかりません。先に列の回答を保存してください。',
+        });
+      }
+
+      const configPath = original.configPath || undefined;
+      const config = loadConfig(configPath);
+      config.outputDir = baseOutputDir;
+
+      // 実効 mapping を渡して normalize 実行
+      const meta = await executeRun(
+        'normalize',
+        original.inputFiles,
+        config,
+        configPath,
+        { effectiveMapping: effectiveResult.mapping },
+      );
+      res.json(meta);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '実行に失敗しました' });
+    }
+  });
+
+  // --- API: 列レビューから candidate profile を生成・保存 ---
+  app.post('/api/runs/:id/save-candidate-profile', async (req, res) => {
+    try {
+      const runId = req.params.id;
+      const { profileId, label } = req.body as { profileId?: string; label?: string };
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId が必要です' });
+      }
+
+      const run = getRun(baseOutputDir, runId);
+      if (!run) return res.status(404).json({ error: 'Run が見つかりません' });
+
+      const em = loadEffectiveMapping(baseOutputDir, runId, profileId);
+      if (!em) {
+        return res.status(404).json({
+          error: '列レビューの回答が見つかりません。先に列の確認を保存してください。',
+        });
+      }
+
+      // 元ファイル名を basename で取得
+      const sourceFilename = run.inputFiles.length > 0
+        ? run.inputFiles[0].split('/').pop() ?? 'unknown.csv'
+        : 'unknown.csv';
+
+      const candidate = buildCandidateProfile(runId, sourceFilename, em, { label });
+      saveCandidateProfile(baseOutputDir, candidate);
+
+      // registry を更新（次回の matchProfile に反映）
+      loadProfiles(baseOutputDir);
+
+      res.json({ id: candidate.id, label: candidate.label, saved: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '保存に失敗しました' });
+    }
   });
 
   // --- API: List config files ---

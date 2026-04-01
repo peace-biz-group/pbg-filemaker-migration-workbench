@@ -789,6 +789,9 @@ async function renderRunDetail(runId) {
 
     app.innerHTML = html;
 
+    // 列確認カードを非同期でロード
+    loadColumnStatusCard(runId);
+
     // Delete button
     document.getElementById('btn-delete').addEventListener('click', async () => {
       if (!confirm('この Run を削除しますか？')) return;
@@ -800,23 +803,9 @@ async function renderRunDetail(runId) {
       }
     });
 
-    // Start review from run
-    document.getElementById('btn-start-review-from-run').addEventListener('click', async () => {
-      const btn = document.getElementById('btn-start-review-from-run');
-      btn.disabled = true;
-      btn.textContent = '作成中...';
-      try {
-        const review = await api('/api/reviews', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ runId }),
-        });
-        navigate(`/reviews/${review.id}/columns`);
-      } catch (err) {
-        alert('レビュー作成に失敗: ' + err.message);
-        btn.disabled = false;
-        btn.textContent = '列レビュー';
-      }
+    // Start column review from run detail
+    document.getElementById('btn-start-review-from-run').addEventListener('click', () => {
+      navigate(`/runs/${runId}/columns`);
     });
 
     // Rerun button
@@ -854,6 +843,74 @@ async function renderRunDetail(runId) {
 
   } catch (err) {
     app.innerHTML = `<div class="card"><p class="empty">読み込みに失敗しました: ${err.message}</p></div>`;
+  }
+}
+
+// --- Column status card (run detail) ---
+
+async function loadColumnStatusCard(runId) {
+  try {
+    const status = await api(`/api/runs/${runId}/column-status`);
+    if (!status.entries || status.entries.length === 0) return;
+
+    const entry = status.entries[0];
+    const cardHtml = `
+      <div class="card" id="column-status-card">
+        <h2>列の確認状況</h2>
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
+          ファイル種別: <strong>${escapeHtml(entry.profileName)}</strong>
+        </p>
+        <div class="stats" style="margin-bottom:12px">
+          <div class="stat"><div class="label">使う列</div><div class="value">${entry.activeCount}</div></div>
+          <div class="stat"><div class="label">使わない列</div><div class="value">${entry.unusedCount}</div></div>
+          <div class="stat"><div class="label">まだ決まっていない列</div><div class="value">${entry.pendingCount}</div></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <a href="/runs/${escapeHtml(runId)}/columns" class="btn btn-primary">列の確認を再開</a>
+          <button
+            class="btn"
+            id="btn-save-candidate"
+            onclick="saveCandidateFromRun('${escapeHtml(runId)}', '${escapeHtml(entry.profileId)}')"
+            title="この列の設定を次回も使えるように保存します"
+          >この設定を保存</button>
+        </div>
+        <p id="save-candidate-msg" style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:none"></p>
+        <p style="font-size:11px;color:var(--text-secondary);margin-top:8px">
+          この内容はあとから続けられます
+        </p>
+      </div>
+    `;
+    // サマリカードの直後に挿入
+    const summaryCard = app.querySelector('.card');
+    if (summaryCard) {
+      summaryCard.insertAdjacentHTML('afterend', cardHtml);
+    }
+  } catch { /* ignore — column status is optional */ }
+}
+
+async function saveCandidateFromRun(runId, profileId) {
+  const btn = document.getElementById('btn-save-candidate');
+  const msg = document.getElementById('save-candidate-msg');
+  if (!btn || !msg) return;
+
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  try {
+    await api(`/api/runs/${runId}/save-candidate-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId }),
+    });
+    btn.textContent = '保存済み ✓';
+    msg.textContent = 'この設定は次回も候補として表示されます';
+    msg.style.display = 'block';
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'この設定を保存';
+    msg.textContent = '保存に失敗しました。もう一度お試しください。';
+    msg.style.display = 'block';
+    msg.style.color = 'var(--danger, #dc3545)';
   }
 }
 
@@ -1110,11 +1167,14 @@ async function renderConfirmPage() {
   // Profile match result
   if (pm.profile) {
     const provLabel = pm.profile.provisional ? ' <span class="badge badge-warning">仮</span>' : '';
+    const candidateBadge = pm.profile?.candidate
+      ? '<span style="font-size:10px;background:#f0ad4e;color:#fff;padding:1px 6px;border-radius:4px;margin-left:6px">仮の設定</span>'
+      : '';
     html += `
       <div class="confirm-choice-card selected" id="choice-known">
         <div class="confirm-choice-header">
           <input type="radio" name="file-type-choice" value="known" checked>
-          <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}
+          <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}${candidateBadge}
           <span class="badge badge-info">${escapeHtml(pm.reason)}</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
@@ -1393,40 +1453,82 @@ function matchProfileClient(filename, columns, existingMatch) {
 // --- Column Review Page ---
 
 async function renderColumnReview(runId) {
-  const data = pendingConfirmation || {};
-  const selectedProfileId = data.selectedProfileId;
-  const columns = data.columns || [];
+  app.innerHTML = '<div class="loading">読み込み中...</div>';
+
+  // pendingConfirmation がこの runId 用かチェック
+  const hasPending = pendingConfirmation && pendingConfirmation.runId === runId;
+  const data = hasPending ? pendingConfirmation : {};
+
+  let selectedProfileId = data.selectedProfileId ?? null;
+  let columns = data.columns ? [...data.columns] : [];
+
+  // pendingConfirmation がない場合は保存済みデータから resume
+  if (!hasPending) {
+    try {
+      const status = await api(`/api/runs/${runId}/column-status`);
+      if (status.entries && status.entries.length > 0) {
+        const entry = status.entries[0]; // 先頭を使う（通常 1 件）
+        selectedProfileId = entry.profileId;
+        // columns を effective mapping の sourceHeader から復元
+        if (entry.columns && entry.columns.length > 0) {
+          columns = entry.columns.map(c => c.sourceHeader);
+        }
+      }
+    } catch { /* ignore, proceed with empty */ }
+
+    // それでも columns が空なら source-data から取得
+    if (columns.length === 0) {
+      try {
+        const rd = await api(`/api/runs/${runId}/source-data?offset=0&limit=5`);
+        if (rd.columns) columns = rd.columns;
+      } catch { /* ignore */ }
+    }
+  }
+
+  const reviewProfileId = selectedProfileId || 'new';
 
   // Load profile if known
   let profile = null;
-  if (selectedProfileId) {
+  if (selectedProfileId && selectedProfileId !== 'new') {
     try { profile = await api(`/api/profiles/${selectedProfileId}`); } catch { /* ignore */ }
   }
 
-  // Load existing review if any
+  // Load existing review
   let existingReview = null;
-  if (selectedProfileId) {
-    try {
-      const r = await api(`/api/column-reviews/${runId}/${selectedProfileId || 'new'}`);
-      existingReview = r.reviews;
-    } catch { /* ignore */ }
-  }
+  try {
+    const r = await api(`/api/column-reviews/${runId}/${reviewProfileId}`);
+    existingReview = r.reviews;
+  } catch { /* ignore */ }
 
-  // Load preview data from the run
+  // Load preview rows
   let previewRows = data.previewRows || [];
   if (previewRows.length === 0) {
     try {
       const rd = await api(`/api/runs/${runId}/source-data?offset=0&limit=5`);
       previewRows = rd.rows || [];
-      if (columns.length === 0 && rd.columns) columns.push(...rd.columns);
+      if (columns.length === 0 && rd.columns) columns = rd.columns;
     } catch { /* ignore */ }
+  }
+
+  // columns が結局空 → 案内して終了
+  if (columns.length === 0 && !existingReview) {
+    app.innerHTML = `
+      <div class="card">
+        <h2>列情報が見つかりません</h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
+          この Run の列情報がまだ保存されていません。<br>
+          ファイルをアップロードして確認してから進めてください。
+        </p>
+        <a href="/" class="btn">ダッシュボードに戻る</a>
+      </div>
+    `;
+    return;
   }
 
   // Build column entries
   const entries = columns.map((col, i) => {
     const profileCol = profile?.columns?.find(c => c.position === i);
     const existing = existingReview?.find(r => r.position === i);
-    // Sample values for this column
     const samples = previewRows.slice(0, 5).map(r => r[col]).filter(Boolean);
 
     return {
@@ -1437,7 +1539,6 @@ async function renderColumnReview(runId) {
       profileRequired: profileCol?.required ?? false,
       profileRule: profileCol?.rule || '',
       samples,
-      // Current review values
       meaning: existing?.meaning ?? profileCol?.label ?? '',
       inUse: existing?.inUse ?? 'unknown',
       required: existing?.required ?? (profileCol?.required ? 'yes' : 'unknown'),
@@ -1445,6 +1546,7 @@ async function renderColumnReview(runId) {
     };
   });
 
+  const isResume = !hasPending && existingReview;
   let html = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="font-size:18px">列の確認</h2>
@@ -1458,6 +1560,7 @@ async function renderColumnReview(runId) {
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
         ${profile ? `「<strong>${escapeHtml(profile.label)}</strong>」の列を確認してください。` : '各列の意味を教えてください。'}
         ${profile?.provisional ? '<span class="badge badge-warning">仮の定義です — 確認をお願いします</span>' : ''}
+        ${isResume ? '<span class="badge badge-info">保存済みの回答から続きを表示しています</span>' : ''}
       </p>
       <p style="font-size:12px;color:var(--text-secondary);margin-bottom:16px">
         わからない場合は、そのままで大丈夫です。あとから修正できます。
@@ -1537,12 +1640,17 @@ async function renderColumnReview(runId) {
     });
 
     try {
-      await api(`/api/column-reviews/${runId}/${selectedProfileId || 'new'}`, {
+      const result = await api(`/api/column-reviews/${runId}/${reviewProfileId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reviews }),
       });
-      navigate(`/runs/${runId}`);
+
+      if (result.effectiveSummary) {
+        showColumnReviewSummary(runId, reviewProfileId, result.effectiveSummary);
+      } else {
+        navigate(`/runs/${runId}`);
+      }
     } catch (err) {
       alert('保存に失敗しました: ' + err.message);
     }
@@ -1550,6 +1658,67 @@ async function renderColumnReview(runId) {
 
   document.getElementById('save-review-btn')?.addEventListener('click', saveHandler);
   document.getElementById('save-review-btn-bottom')?.addEventListener('click', saveHandler);
+}
+
+// --- 列レビュー保存後のサマリ表示 ---
+function showColumnReviewSummary(runId, profileId, summary) {
+  const { activeCount, unusedCount, pendingCount } = summary;
+
+  app.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 style="font-size:18px">回答を保存しました</h2>
+    </div>
+    <div class="card">
+      <p style="font-size:13px;margin-bottom:16px">
+        この回答が保存されました。次の確認に使われます。
+      </p>
+      <div class="stats" style="margin-bottom:16px">
+        <div class="stat">
+          <div class="label">使う列</div>
+          <div class="value">${activeCount}</div>
+        </div>
+        <div class="stat">
+          <div class="label">使わない列</div>
+          <div class="value">${unusedCount}</div>
+        </div>
+        <div class="stat">
+          <div class="label">未確定</div>
+          <div class="value">${pendingCount}</div>
+        </div>
+      </div>
+      ${activeCount > 0 ? `
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btn-normalize-with-review">この回答を使って正規化を実行</button>
+          <a href="/runs/${escapeHtml(runId)}" class="btn">結果を見る</a>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">
+          「使う列」${activeCount}件の名前を整えて、正規化ファイルを作成します。
+        </p>
+      ` : `
+        <div style="display:flex;gap:8px">
+          <a href="/runs/${escapeHtml(runId)}" class="btn btn-primary">結果を見る</a>
+        </div>
+      `}
+    </div>
+  `;
+
+  document.getElementById('btn-normalize-with-review')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-normalize-with-review');
+    btn.disabled = true;
+    btn.textContent = '実行中...';
+    try {
+      const result = await api(`/api/runs/${runId}/rerun-with-review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId }),
+      });
+      navigate(`/runs/${result.id}`);
+    } catch (err) {
+      alert('実行に失敗しました: ' + err.message);
+      btn.disabled = false;
+      btn.textContent = 'この回答を使って正規化を実行';
+    }
+  });
 }
 
 // --- Init ---
