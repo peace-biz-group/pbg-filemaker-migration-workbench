@@ -867,7 +867,14 @@ async function loadColumnStatusCard(runId) {
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <a href="/runs/${escapeHtml(runId)}/columns" class="btn btn-primary">列の確認を再開</a>
+          <button
+            class="btn"
+            id="btn-save-candidate"
+            onclick="saveCandidateFromRun('${escapeHtml(runId)}', '${escapeHtml(entry.profileId)}')"
+            title="この列の設定を次回も使えるように保存します"
+          >この設定を保存</button>
         </div>
+        <p id="save-candidate-msg" style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:none"></p>
         <p style="font-size:11px;color:var(--text-secondary);margin-top:8px">
           この内容はあとから続けられます
         </p>
@@ -879,6 +886,32 @@ async function loadColumnStatusCard(runId) {
       summaryCard.insertAdjacentHTML('afterend', cardHtml);
     }
   } catch { /* ignore — column status is optional */ }
+}
+
+async function saveCandidateFromRun(runId, profileId) {
+  const btn = document.getElementById('btn-save-candidate');
+  const msg = document.getElementById('save-candidate-msg');
+  if (!btn || !msg) return;
+
+  btn.disabled = true;
+  btn.textContent = '保存中...';
+
+  try {
+    await api(`/api/runs/${runId}/save-candidate-profile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId }),
+    });
+    btn.textContent = '保存済み ✓';
+    msg.textContent = 'この設定は次回も候補として表示されます';
+    msg.style.display = 'block';
+  } catch (err) {
+    btn.disabled = false;
+    btn.textContent = 'この設定を保存';
+    msg.textContent = '保存に失敗しました。もう一度お試しください。';
+    msg.style.display = 'block';
+    msg.style.color = 'var(--danger, #dc3545)';
+  }
 }
 
 // --- Tab content loading ---
@@ -1134,11 +1167,14 @@ async function renderConfirmPage() {
   // Profile match result
   if (pm.profile) {
     const provLabel = pm.profile.provisional ? ' <span class="badge badge-warning">仮</span>' : '';
+    const candidateBadge = pm.profile?.candidate
+      ? '<span style="font-size:10px;background:#f0ad4e;color:#fff;padding:1px 6px;border-radius:4px;margin-left:6px">仮の設定</span>'
+      : '';
     html += `
       <div class="confirm-choice-card selected" id="choice-known">
         <div class="confirm-choice-header">
           <input type="radio" name="file-type-choice" value="known" checked>
-          <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}
+          <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}${candidateBadge}
           <span class="badge badge-info">${escapeHtml(pm.reason)}</span>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
