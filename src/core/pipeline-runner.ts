@@ -168,7 +168,14 @@ export async function executeRun(
   inputFiles: string[],
   config: WorkbenchConfig,
   configPath?: string,
-  options?: { async?: boolean },
+  options?: {
+    async?: boolean;
+    /**
+     * 列レビュー回答から生成された実効 mapping。
+     * 指定された場合、normalize ステップで config の column mapping より優先して適用される。
+     */
+    effectiveMapping?: Record<string, string> | null;
+  },
 ): Promise<RunMeta> {
   const runId = generateRunId();
   const runDir = join(getRunsBaseDir(config.outputDir), runId);
@@ -243,11 +250,14 @@ export async function executeRun(
       saveMeta(meta);
 
       // Build contexts
+      const effectiveMapping = options?.effectiveMapping;
       const contexts: NormalizeContext[] = inputFiles.map((f, i) => ({
         sourceBatchId: batchId,
         importRunId: runId,
         sourceKey: srcKeys[i] ?? basename(f),
         ingestOptions: resolveFileIngestOptions(f, config),
+        // run 単位の実効 mapping（列レビュー回答から生成）
+        effectiveMapping,
       }));
 
       switch (mode) {
@@ -280,6 +290,20 @@ export async function executeRun(
         JSON.stringify(ingestDiagnoses, null, 2),
         'utf-8',
       );
+
+      // 実効 mapping を使った run の場合は監査証跡として出力ディレクトリに保存する
+      if (effectiveMapping !== undefined && effectiveMapping !== null) {
+        writeFileSync(
+          join(meta.outputDir, 'effective-mapping.json'),
+          JSON.stringify({
+            appliedAt: new Date().toISOString(),
+            runId,
+            mapping: effectiveMapping,
+            columnCount: Object.keys(effectiveMapping).length,
+          }, null, 2),
+          'utf-8',
+        );
+      }
 
       // Write run-diff.json if previousRunId exists
       if (prevRunId) {
