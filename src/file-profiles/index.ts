@@ -94,35 +94,39 @@ function globMatch(pattern: string, text: string): boolean {
 }
 
 /**
- * ファイル名と列名からプロファイル候補をマッチングする。
+ * ファイル名・列名・列数からプロファイル候補をマッチングする。
  *
  * マッチング優先度:
- * 1. ファイル名ヒント一致（高信頼）
- * 2. 列ヘッダーヒント一致（中信頼、補助）
- * 3. マッチなし → 新規ファイル
+ * 1. ファイル名ヒント一致（高信頼、+100）
+ * 2. 列ヘッダーヒント一致（中信頼、補助、max +50）— ヘッダーありファイル向け
+ * 3. 列数近似（+25/+15/+8）— ヘッダーなしファイルでも有効
+ * 4. ヘッダーなしファイル × headerlessSuitable プロファイル（+20）
+ * 5. マッチなし → 新規ファイル
  */
 export function matchProfile(
   filename: string,
   columns: string[],
+  options?: { isHeaderless?: boolean; columnCount?: number },
 ): ProfileMatchResult {
   const name = basename(filename);
+  const { isHeaderless = false, columnCount } = options ?? {};
   const scored: Array<{ profile: FileProfile; score: number; reason: string }> = [];
 
   for (const profile of registry) {
     let score = 0;
     const reasons: string[] = [];
 
-    // Filename hint match
+    // 1. Filename hint match (+100)
     for (const hint of profile.filenameHints) {
       if (globMatch(hint, name)) {
         score += 100;
-        reasons.push('ファイル名が一致');
+        reasons.push('ファイル名が近い');
         break;
       }
     }
 
-    // Header hint match (supplementary)
-    if (columns.length > 0) {
+    // 2. Header hint match (max +50) — ヘッダーありの場合のみ有効
+    if (!isHeaderless && columns.length > 0) {
       let headerMatches = 0;
       for (const colDef of profile.columns) {
         if (!colDef.headerHints) continue;
@@ -140,8 +144,37 @@ export function matchProfile(
       }
     }
 
+    // 3. Column count scoring (+25/+15/+8)
+    // profile.columnCount があればそちらを使い、なければ profile.columns.length にフォールバック
+    if (columnCount !== undefined && columnCount > 0) {
+      const expected = profile.columnCount ?? profile.columns.length;
+      const diff = Math.abs(expected - columnCount);
+      if (diff === 0) {
+        score += 25;
+        reasons.push('列の数が一致');
+      } else if (diff <= 1) {
+        score += 15;
+        reasons.push('列の数が近い');
+      } else if (diff <= 2) {
+        score += 8;
+        reasons.push('列の数がほぼ近い');
+      }
+      // diff > 2 はスコアなし
+    }
+
+    // 4. Headerless bonus (+20) — ヘッダーなしファイル × headerlessSuitable
+    if (isHeaderless) {
+      if (profile.headerlessSuitable === true) {
+        score += 20;
+        reasons.push('前に保存した設定が使えそうです');
+      } else if (profile.defaultHasHeader === false) {
+        score += 10;
+        reasons.push('ヘッダーなし向けの設定');
+      }
+    }
+
     if (score > 0) {
-      scored.push({ profile, score, reason: reasons.join('、') });
+      scored.push({ profile, score, reason: reasons.join('・') });
     }
   }
 

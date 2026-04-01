@@ -93,6 +93,52 @@ describe('File Profiles', () => {
         expect(result.confidence).not.toBe('none');
       }
     });
+
+    describe('column count and headerless matching', () => {
+      it('列数が一致する場合スコアが上がる（ファイル名が一致しない場合でも候補が出る）', () => {
+        // customer-list は 6 列 — ファイル名マッチなし・ヘッダーなし・列数一致
+        const result = matchProfile('data_export.csv', [], { columnCount: 6 });
+        // 何らかの profile が候補として出るはず（column count score > 0）
+        expect(result.profile).not.toBeNull();
+        expect(['low', 'medium']).toContain(result.confidence);
+      });
+
+      it('列数が大きくズレると候補スコアが弱くなる', () => {
+        const result6 = matchProfile('data.csv', [], { columnCount: 6 });
+        const result1 = matchProfile('data.csv', [], { columnCount: 1 });
+        const toScore = (r: typeof result6) =>
+          r.confidence === 'high' ? 3 : r.confidence === 'medium' ? 2 : r.confidence === 'low' ? 1 : 0;
+        // 6列一致の方が 1列の場合よりスコアが高い（seed は全て6列）
+        expect(toScore(result6)).toBeGreaterThan(toScore(result1));
+      });
+
+      it('ファイル名が一致し列数も一致する場合、high confidence になる', () => {
+        // customer-list は filename で +100、column count 一致で +25
+        const result = matchProfile('顧客一覧.csv', [], { columnCount: 6 });
+        expect(result.profile?.id).toBe('customer-list');
+        expect(result.confidence).toBe('high');
+      });
+
+      it('ヘッダーなし指定でも filename マッチは機能する', () => {
+        const result = matchProfile('コール履歴.csv', [], { isHeaderless: true, columnCount: 6 });
+        expect(result.profile?.id).toBe('call-history');
+        expect(result.confidence).toBe('high');
+      });
+
+      it('reason に日本語の理由が含まれる', () => {
+        const result = matchProfile('顧客一覧.csv', [], { columnCount: 6 });
+        expect(result.reason).toBeTruthy();
+        // ファイル名ヒント一致の場合、理由に「ファイル名が近い」が含まれる
+        expect(result.reason).toContain('ファイル名が近い');
+      });
+
+      it('列数のみで候補を出す場合、理由に「列の数」が含まれる', () => {
+        const result = matchProfile('unknown.csv', [], { columnCount: 6 });
+        if (result.profile) {
+          expect(result.reason).toMatch(/列の数/);
+        }
+      });
+    });
   });
 
   describe('profile persistence', () => {
