@@ -446,7 +446,14 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         if (sampleRows.length >= 10) break;
       }
 
-      const profileMatch = matchProfile(uploaded.originalname, ir.columns);
+      // ヘッダーなし CSV かどうかを判定（hasHeader=false で読み込んだ場合）
+      const isHeaderless = ir.diagnosis.headerApplied === false;
+      // 実際の列数（ヘッダーなしでも ingest 後に確定している）
+      const actualColumnCount = ir.columns.length;
+      const profileMatch = matchProfile(uploaded.originalname, ir.columns, {
+        isHeaderless,
+        columnCount: actualColumnCount,
+      });
 
       res.json({
         filename: uploaded.originalname,
