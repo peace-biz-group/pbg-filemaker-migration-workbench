@@ -78,12 +78,11 @@ export function buildPreRunDiffPreview(
   );
 
   let prevRun: RunMeta | null = null;
-  if (pid && allCompleted.length > 0) {
-    prevRun =
-      allCompleted.find(r => (r.profileId ?? r.fastPathProfileId) === pid) ??
-      allCompleted[0] ??
-      null;
+  if (pid) {
+    // profileId 指定あり: 一致する run のみ比較対象にする（異なるプロファイルの run で比較しない）
+    prevRun = allCompleted.find(r => (r.profileId ?? r.fastPathProfileId) === pid) ?? null;
   } else {
+    // profileId 指定なし: 最新の run を比較対象にする
     prevRun = allCompleted[0] ?? null;
   }
 

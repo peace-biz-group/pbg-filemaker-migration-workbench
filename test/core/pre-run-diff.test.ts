@@ -83,26 +83,31 @@ describe('buildPreRunDiffPreview', () => {
     expect(result.columnCountDelta).toBe(3);
   });
 
-  it('built-in / candidate の両方で壊れない', async () => {
+  it('profileId が一致する run のみを比較対象にする（built-in / candidate 両対応）', async () => {
     const file = join(F, 'utf8.csv');
     const r1 = await executeRun('run-all', [file], config, undefined, { profileId: 'candidate-profile-001' });
     const hash = Object.values(r1.sourceFileHashes ?? {})[0]!;
+    const cols = r1.summary?.columnCount ?? 1;
 
-    const resultBuiltIn = buildPreRunDiffPreview(OUTPUT, {
+    // 一致しない profileId → first_import（異なるプロファイルの run で誤比較しない）
+    const resultNoMatch = buildPreRunDiffPreview(OUTPUT, {
       filename: 'utf8.csv',
       sourceFileHash: hash,
-      columnCount: r1.summary?.columnCount ?? 1,
-      profileId: 'some-builtin-profile',
+      columnCount: cols,
+      profileId: 'some-other-profile-never-run',
     });
-    expect(resultBuiltIn.previousRunId).not.toBeNull();
+    expect(resultNoMatch.previousRunId).toBeNull();
+    expect(resultNoMatch.classification).toBe('first_import');
 
+    // 一致する candidate profileId → r1 を比較対象として返す
     const resultCandidate = buildPreRunDiffPreview(OUTPUT, {
       filename: 'utf8.csv',
       sourceFileHash: hash,
-      columnCount: r1.summary?.columnCount ?? 1,
+      columnCount: cols,
       profileId: 'candidate-profile-001',
     });
     expect(resultCandidate.previousRunId).toBe(r1.id);
+    expect(resultCandidate.classification).toBe('same_file');
   });
 
   it('confirm 向け API shape が安定して返る（必須フィールド）', () => {
