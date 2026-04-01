@@ -39,6 +39,10 @@ export interface RunMeta {
   schemaFingerprints?: Record<string, string>;
   ingestDiagnoses?: Record<string, IngestDiagnosis>;
   previousRunId?: string;
+  // fast path fields
+  usedFastPath?: boolean;
+  fastPathProfileId?: string;
+  skippedColumnReview?: boolean;
 }
 
 function generateRunId(): string {
@@ -90,6 +94,26 @@ export function getRunOutputFiles(outputDir: string, runId: string): string[] {
 
 function saveMeta(meta: RunMeta): void {
   writeFileSync(join(meta.outputDir, 'run-meta.json'), JSON.stringify(meta, null, 2), 'utf-8');
+}
+
+/**
+ * 保存済みの run メタデータを部分更新する。
+ * fast path など、実行後に追記したいフィールドに使用する。
+ */
+export function patchRunMeta(
+  outputDir: string,
+  runId: string,
+  patch: Partial<RunMeta>,
+): RunMeta | null {
+  const current = getRun(outputDir, runId);
+  if (!current) return null;
+  const updated = { ...current, ...patch };
+  writeFileSync(
+    join(getRunsBaseDir(outputDir), runId, 'run-meta.json'),
+    JSON.stringify(updated, null, 2),
+    'utf-8',
+  );
+  return updated;
 }
 
 // --- Progress tracking ---
