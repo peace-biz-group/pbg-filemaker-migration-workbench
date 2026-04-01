@@ -28,6 +28,7 @@ import {
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
+import { buildRunDiffSummaryV1, saveRunDiffSummary } from '../core/run-diff-summary.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -193,6 +194,25 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
     }
+  });
+
+  // --- API: Run diff summary v1 ---
+  app.get('/api/runs/:id/diff', (req, res) => {
+    const run = getRun(baseOutputDir, req.params.id);
+    if (!run) return res.status(404).json({ error: 'Run not found' });
+
+    const summary = buildRunDiffSummaryV1(baseOutputDir, run);
+    if (!summary) {
+      return res.json({
+        version: 1,
+        currentRunId: run.id,
+        classification: 'no_comparable',
+        classificationLabel: '比較対象なし',
+        generatedAt: new Date().toISOString(),
+      });
+    }
+    saveRunDiffSummary(run.outputDir, summary);
+    res.json(summary);
   });
 
   // --- API: Delete a run ---
@@ -603,7 +623,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         original.inputFiles,
         config,
         configPath,
-        { effectiveMapping: effectiveResult.mapping },
+        { effectiveMapping: effectiveResult.mapping, profileId },
       );
       res.json(meta);
     } catch (err) {
@@ -693,7 +713,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         original.inputFiles,
         config,
         configPath,
-        { effectiveMapping: effectiveResult.mapping },
+        { effectiveMapping: effectiveResult.mapping, profileId },
       );
 
       res.json({
