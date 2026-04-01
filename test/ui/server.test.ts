@@ -321,4 +321,53 @@ describe('UI Server API', () => {
     expect(info.checkedDir).toContain('checked');
     expect(info.reworkDir).toContain('rework');
   });
+
+  // ===== Column Status API tests =====
+
+  it('GET /api/runs/:id/column-status returns empty entries when no review saved', async () => {
+    const runsRes = await fetch(`${baseUrl}/api/runs`);
+    const runs = await runsRes.json();
+    const run = runs[0];
+
+    const res = await fetch(`${baseUrl}/api/runs/${run.id}/column-status`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.entries).toBeDefined();
+    expect(Array.isArray(data.entries)).toBe(true);
+    // No review saved for this test run → empty
+    expect(data.entries.length).toBe(0);
+  });
+
+  it('GET /api/runs/:id/column-status returns entry after saving a column review', async () => {
+    const runsRes = await fetch(`${baseUrl}/api/runs`);
+    const runs = await runsRes.json();
+    const run = runs[0];
+    const runId = run.id;
+    const profileId = 'new';
+
+    // Save a column review first
+    const reviews = [
+      { position: 0, label: '会社名', key: 'company_name', meaning: '会社名', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 1, label: '担当者', key: 'contact', meaning: '担当者', inUse: 'no', required: 'no', rule: '' },
+    ];
+    const saveRes = await fetch(`${baseUrl}/api/column-reviews/${runId}/${profileId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reviews }),
+    });
+    expect(saveRes.status).toBe(200);
+
+    // Now check column-status
+    const res = await fetch(`${baseUrl}/api/runs/${runId}/column-status`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.entries.length).toBeGreaterThanOrEqual(1);
+    const entry = data.entries.find((e: { profileId: string }) => e.profileId === profileId);
+    expect(entry).toBeDefined();
+    expect(entry.profileName).toBe('新規ファイル');
+    expect(entry.activeCount).toBe(1);
+    expect(entry.unusedCount).toBe(1);
+    expect(entry.pendingCount).toBe(0);
+    expect(Array.isArray(entry.columns)).toBe(true);
+  });
 });
