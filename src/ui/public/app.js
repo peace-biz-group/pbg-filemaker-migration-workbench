@@ -1170,14 +1170,19 @@ async function renderConfirmPage() {
     const candidateBadge = pm.profile?.candidate
       ? '<span style="font-size:10px;background:#f0ad4e;color:#fff;padding:1px 6px;border-radius:4px;margin-left:6px">仮の設定</span>'
       : '';
+    const confidenceLabel = pm.confidence === 'high' ? '✓ よく一致' : pm.confidence === 'medium' ? 'だいたい一致' : '候補';
+    const confidenceColor = pm.confidence === 'high' ? 'var(--success,#16a34a)' : pm.confidence === 'medium' ? '#f59e0b' : 'var(--text-secondary)';
     html += `
       <div class="confirm-choice-card selected" id="choice-known">
         <div class="confirm-choice-header">
           <input type="radio" name="file-type-choice" value="known" checked>
           <strong>「${escapeHtml(pm.profile.label)}」として扱う</strong>${provLabel}${candidateBadge}
-          <span class="badge badge-info">${escapeHtml(pm.reason)}</span>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
+        <p style="font-size:12px;margin:4px 0 0 24px">
+          <span style="color:${confidenceColor};font-weight:600">${escapeHtml(confidenceLabel)}</span>
+          <span style="color:var(--text-secondary)"> — ${escapeHtml(pm.reason)}</span>
+        </p>
+        <p style="font-size:12px;color:var(--text-secondary);margin:2px 0 0 24px">
           分類: ${escapeHtml(pm.profile.category)} ｜ 列数: ${pm.profile.columns.length}
         </p>
       </div>
