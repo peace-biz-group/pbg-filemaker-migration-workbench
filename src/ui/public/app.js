@@ -1186,7 +1186,7 @@ function truncate(str, maxLen) {
 // --- Pre-run diff preview card ---
 
 function renderPreRunPreviewCard(preview) {
-  if (!preview) return '';
+  if (!preview || preview.classification === 'no_comparable') return '';
 
   const cls = preview.classification;
   const lbl = preview.classificationLabel || '';
