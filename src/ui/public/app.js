@@ -1439,8 +1439,67 @@ async function renderConfirmPage() {
       const warningContainer = document.getElementById('duplicate-warning-container');
       if (!warningContainer) return;
 
-      if (currentPreRunPreview?.duplicateWarning) {
-        // duplicate warning あり → カードと分岐ボタンを表示
+      const schemaDrift = currentPreRunPreview?.schemaDriftGuard === true;
+      const dupWarn = currentPreRunPreview?.duplicateWarning === true;
+
+      if (schemaDrift) {
+        // schema drift guard あり → 列確認を主動線に（fast path 抑制）
+        let warningHtml = '';
+
+        // schema drift 警告カード
+        warningHtml += `
+          <div class="card" style="background:#fef9c3;border:1px solid #ca8a04;padding:12px 16px;margin-bottom:8px">
+            <div style="font-size:13px;font-weight:600;color:#92400e">！ 前回と列の形が変わっています</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px">
+              そのまま進める前に、列の確認をおすすめします。<br>
+              新しい列や消えた列があるかもしれません。
+            </div>
+            ${currentPreRunPreview.columnCountDelta !== null && currentPreRunPreview.columnCountDelta !== 0
+              ? `<div style="font-size:12px;color:#92400e;margin-top:4px">列数の変化: <strong>${currentPreRunPreview.columnCountDelta > 0 ? '+' : ''}${currentPreRunPreview.columnCountDelta}列</strong>（前回 ${currentPreRunPreview.columnCountPrev ?? '?'}列 → 今回 ${currentPreRunPreview.columnCountCurr}列）</div>`
+              : ''}
+          </div>
+        `;
+
+        // duplicate warning も立っている場合は両方表示
+        if (dupWarn) {
+          const prevRunId = currentPreRunPreview.previousRunId;
+          warningHtml += `
+            <div class="card" style="background:#fef3c7;border:1px solid #b45309;padding:12px 16px;margin-bottom:8px">
+              <div style="font-size:13px;font-weight:600;color:#b45309">！ 前回と同じ内容の可能性もあります</div>
+              <div style="font-size:12px;color:#6b7280;margin-top:4px">前回の結果も確認してから進めることをおすすめします。</div>
+              ${prevRunId ? `<div style="margin-top:8px"><a href="/runs/${encodeURIComponent(prevRunId)}" class="btn" style="font-size:12px">前回の結果を見る</a></div>` : ''}
+            </div>
+          `;
+        }
+
+        warningContainer.innerHTML = warningHtml;
+
+        // action area を更新：「列を確認する」を主動線に、fast path を従動線に落とす
+        const actionArea = document.getElementById('action-area');
+        if (actionArea) {
+          actionArea.innerHTML = `
+            <button class="btn btn-primary" id="confirm-columns-btn">列を確認する（おすすめ）</button>
+            <button class="btn" id="confirm-override-btn" style="font-size:12px;color:#6b7280">それでも進める</button>
+            <a href="/new" class="btn">戻る</a>
+          `;
+          document.getElementById('confirm-columns-btn').addEventListener('click', async () => {
+            await executeProceed({
+              data, pm,
+              schemaDriftWarningShown: true, schemaDriftOverride: false,
+              duplicateWarningShown: dupWarn, duplicateOverride: false,
+              forceColumnsNav: true,
+            });
+          });
+          document.getElementById('confirm-override-btn').addEventListener('click', async () => {
+            await executeProceed({
+              data, pm,
+              schemaDriftWarningShown: true, schemaDriftOverride: true,
+              duplicateWarningShown: dupWarn, duplicateOverride: dupWarn,
+            });
+          });
+        }
+      } else if (dupWarn) {
+        // duplicate warning のみ（schema drift なし） → 既存の挙動を維持
         const prevRunId = currentPreRunPreview.previousRunId;
         warningContainer.innerHTML = `
           <div class="card" style="background:#fef3c7;border:1px solid #b45309;padding:12px 16px;margin-bottom:0">
@@ -1463,7 +1522,6 @@ async function renderConfirmPage() {
             <button class="btn" id="confirm-proceed-btn" style="font-size:12px;color:#6b7280">それでも実行する</button>
             <a href="/new" class="btn">戻る</a>
           `;
-          // proceed ボタンを再バインド（duplicate override あり）
           const overrideBtn = document.getElementById('confirm-proceed-btn');
           if (overrideBtn) {
             overrideBtn.addEventListener('click', async () => {
@@ -1471,8 +1529,8 @@ async function renderConfirmPage() {
             });
           }
         }
-      } else if (currentPreRunPreview && !currentPreRunPreview.duplicateWarning) {
-        // duplicate warning なし → 軽量な状態カードを表示
+      } else {
+        // 警告なし → 軽量な状態カードを表示
         warningContainer.innerHTML = renderPreRunPreviewCard(currentPreRunPreview);
       }
     } catch {
@@ -1527,7 +1585,12 @@ async function renderConfirmPage() {
     });
   }
 
-  async function executeProceed({ data, pm, duplicateWarningShown = false, duplicateOverride = false } = {}) {
+  async function executeProceed({
+    data, pm,
+    duplicateWarningShown = false, duplicateOverride = false,
+    schemaDriftWarningShown = false, schemaDriftOverride = false,
+    forceColumnsNav = false,
+  } = {}) {
     const choice = document.querySelector('input[name="file-type-choice"]:checked')?.value;
     const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
     const fs = data.formState;
@@ -1545,10 +1608,11 @@ async function renderConfirmPage() {
       selectedProfileId = document.getElementById('alt-profile-select')?.value;
     }
 
-    const proceedBtn = document.getElementById('confirm-proceed-btn');
-    if (proceedBtn) {
-      proceedBtn.disabled = true;
-      proceedBtn.textContent = '実行中...';
+    // schema drift guard 時は confirm-columns-btn、それ以外は confirm-proceed-btn
+    const activeBtn = document.getElementById('confirm-columns-btn') || document.getElementById('confirm-proceed-btn');
+    if (activeBtn) {
+      activeBtn.disabled = true;
+      activeBtn.textContent = '実行中...';
     }
 
     try {
@@ -1564,6 +1628,8 @@ async function renderConfirmPage() {
             ingestOptions,
             duplicateWarningShown,
             duplicateOverride,
+            schemaDriftWarningShown,
+            schemaDriftOverride,
           }),
         });
       } else {
@@ -1581,6 +1647,8 @@ async function renderConfirmPage() {
         formData.append('ingestOptions', JSON.stringify(ingestOptions));
         if (duplicateWarningShown) formData.append('duplicateWarningShown', 'true');
         if (duplicateOverride) formData.append('duplicateOverride', 'true');
+        if (schemaDriftWarningShown) formData.append('schemaDriftWarningShown', 'true');
+        if (schemaDriftOverride) formData.append('schemaDriftOverride', 'true');
 
         const res = await fetch('/api/runs', { method: 'POST', body: formData });
         if (!res.ok) {
@@ -1590,8 +1658,10 @@ async function renderConfirmPage() {
         result = await res.json();
       }
 
-      if (choice === 'new') {
-        pendingConfirmation = { ...data, runId: result.id, selectedProfileId: null };
+      // schema drift guard で「列を確認する」が押された場合は、
+      // 既知プロファイルでも強制的に列確認ページへ（fast path 抑制）
+      if (choice === 'new' || forceColumnsNav) {
+        pendingConfirmation = { ...data, runId: result.id, selectedProfileId: selectedProfileId || null };
         navigate(`/runs/${result.id}/columns`);
       } else if (selectedProfileId) {
         pendingConfirmation = { ...data, runId: result.id, selectedProfileId };
@@ -1600,15 +1670,17 @@ async function renderConfirmPage() {
         navigate(`/runs/${result.id}`);
       }
     } catch (err) {
-      if (proceedBtn) {
-        proceedBtn.disabled = false;
-        proceedBtn.textContent = duplicateOverride ? 'それでも実行する' : '確認して実行';
+      if (activeBtn) {
+        activeBtn.disabled = false;
+        activeBtn.textContent = forceColumnsNav
+          ? '列を確認する（おすすめ）'
+          : (duplicateOverride ? 'それでも実行する' : '確認して実行');
       }
       alert('実行に失敗しました: ' + err.message);
     }
   }
 
-  // Proceed button（duplicate warning がない場合の通常フロー）
+  // Proceed button（警告がない場合の通常フロー）
   const proceedBtn = document.getElementById('confirm-proceed-btn');
   if (proceedBtn) {
     proceedBtn.addEventListener('click', () => {

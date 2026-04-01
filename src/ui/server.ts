@@ -191,9 +191,13 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
       const dupWarningShown = req.body.duplicateWarningShown === 'true' || req.body.duplicateWarningShown === true;
       const dupOverride = req.body.duplicateOverride === 'true' || req.body.duplicateOverride === true;
+      const schemaDriftWarningShown = req.body.schemaDriftWarningShown === 'true' || req.body.schemaDriftWarningShown === true;
+      const schemaDriftOverride = req.body.schemaDriftOverride === 'true' || req.body.schemaDriftOverride === true;
       const meta = await executeRun(mode, inputFiles, config, configPath, {
         ...(dupWarningShown ? { duplicateWarningShown: true } : {}),
         ...(dupOverride ? { duplicateOverride: true } : {}),
+        ...(schemaDriftWarningShown ? { schemaDriftWarningShown: true } : {}),
+        ...(schemaDriftOverride ? { schemaDriftOverride: true } : {}),
       });
       res.json(meta);
     } catch (err) {

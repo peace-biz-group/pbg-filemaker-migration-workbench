@@ -42,6 +42,13 @@ export interface PreRunDiffPreview {
    * 自動ブロックには使わず、UI での確認促進に使う。
    */
   duplicateWarning: boolean;
+  /**
+   * 列の形が変わっている可能性があるか。
+   * classification === 'column_changed' のときだけ true になる。
+   * fast path 抑制・confirm 画面での列確認誘導に使う。
+   * 自動ブロックには使わず、UI での確認促進に使う。
+   */
+  schemaDriftGuard: boolean;
 }
 
 export interface PreRunInput {
@@ -108,6 +115,7 @@ export function buildPreRunDiffPreview(
       classification: 'first_import',
       classificationLabel: CLASSIFICATION_LABELS['first_import'],
       duplicateWarning: false,
+      schemaDriftGuard: false,
     };
   }
 
@@ -149,5 +157,6 @@ export function buildPreRunDiffPreview(
     classification,
     classificationLabel: CLASSIFICATION_LABELS[classification],
     duplicateWarning: sameRawFingerprint === true,
+    schemaDriftGuard: classification === 'column_changed',
   };
 }
