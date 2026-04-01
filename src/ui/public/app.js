@@ -1126,9 +1126,58 @@ function truncate(str, maxLen) {
   return str.slice(0, maxLen - 3) + '...';
 }
 
+// --- Pre-run diff preview card (重複再投入ガード) ---
+
+function renderPreRunPreviewCard(preview) {
+  if (!preview) return '';
+  const cls = preview.classification;
+  const label = preview.classificationLabel || '';
+
+  let icon = '○';
+  let color = '#6b7280';
+  let bgColor = '#f9fafb';
+  if (cls === 'same_file') {
+    icon = '！';
+    color = '#b45309';
+    bgColor = '#fef3c7';
+  } else if (cls === 'first_import') {
+    icon = '★';
+    color = '#6366f1';
+    bgColor = '#ede9fe';
+  } else if (cls === 'column_changed') {
+    icon = '！';
+    color = '#d97706';
+    bgColor = '#fef3c7';
+  } else if (cls === 'row_changed') {
+    icon = '↑';
+    color = '#2563eb';
+    bgColor = '#dbeafe';
+  }
+
+  let detailLines = '';
+  if (preview.rowCountPrev !== null) {
+    detailLines += `<div style="font-size:12px;color:#6b7280;margin-top:4px">前回の件数: <strong>${Number(preview.rowCountPrev).toLocaleString('ja-JP')}件</strong></div>`;
+  }
+  if (preview.columnCountDelta !== null && preview.columnCountDelta !== 0) {
+    const sign = preview.columnCountDelta > 0 ? '+' : '';
+    detailLines += `<div style="font-size:12px;color:${color};margin-top:2px">列数の変化: <strong>${sign}${preview.columnCountDelta}列</strong>（前回 ${preview.columnCountPrev ?? '?'}列 → 今回 ${preview.columnCountCurr}列）</div>`;
+  } else if (preview.columnCountPrev !== null) {
+    detailLines += `<div style="font-size:12px;color:#6b7280;margin-top:2px">列数: <strong>${preview.columnCountCurr}列</strong>（前回と同じ）</div>`;
+  }
+
+  return `
+    <div class="card" style="background:${bgColor};border:1px solid ${color};padding:12px 16px">
+      <div style="font-size:13px;font-weight:600;color:${color}">${icon} ${escapeHtml(label)}</div>
+      ${detailLines}
+    </div>
+  `;
+}
+
 // --- Confirm Page (upload → identify → confirm) ---
 
 async function renderConfirmPage() {
+  let currentPreRunPreview = null;
+
   if (!pendingConfirmation) {
     navigate('/new');
     return;
@@ -1297,15 +1346,74 @@ async function renderConfirmPage() {
     </div>
   `;
 
+  // Duplicate warning placeholder (filled asynchronously after pre-run preview loads)
+  html += `<div id="duplicate-warning-container"></div>`;
+
   // Action buttons
   html += `
-    <div style="display:flex;gap:8px;margin-top:16px">
+    <div id="action-area" style="display:flex;gap:8px;margin-top:16px">
       <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
       <a href="/new" class="btn">戻る</a>
     </div>
   `;
 
   app.innerHTML = html;
+
+  // Pre-run preview を非同期で取得（confirm フローを止めない）
+  (async () => {
+    try {
+      const params = new URLSearchParams({
+        filename: data.filename || '',
+        columnCount: String((data.columns || []).length),
+      });
+      if (data.sourceFileHash) params.set('sourceFileHash', data.sourceFileHash);
+      if (data.schemaFingerprint) params.set('schemaFingerprint', data.schemaFingerprint);
+
+      currentPreRunPreview = await api(`/api/pre-run-preview?${params.toString()}`);
+
+      const warningContainer = document.getElementById('duplicate-warning-container');
+      if (!warningContainer) return;
+
+      if (currentPreRunPreview?.duplicateWarning) {
+        // duplicate warning あり → カードと分岐ボタンを表示
+        const prevRunId = currentPreRunPreview.previousRunId;
+        warningContainer.innerHTML = `
+          <div class="card" style="background:#fef3c7;border:1px solid #b45309;padding:12px 16px;margin-bottom:0">
+            <div style="font-size:13px;font-weight:600;color:#b45309">！ 前回と同じ内容の可能性があります</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px">前回の結果を確認してから進めることをおすすめします。<br>必要な場合だけもう一度実行してください。</div>
+            ${currentPreRunPreview.rowCountPrev !== null
+              ? `<div style="font-size:12px;color:#6b7280;margin-top:4px">前回の件数: <strong>${Number(currentPreRunPreview.rowCountPrev).toLocaleString('ja-JP')}件</strong></div>`
+              : ''}
+            ${prevRunId ? `
+            <div style="margin-top:10px">
+              <a href="/runs/${encodeURIComponent(prevRunId)}" class="btn" style="font-size:13px">前回の結果を見る</a>
+            </div>` : ''}
+          </div>
+        `;
+
+        // action area を更新：「それでも実行する」を明示
+        const actionArea = document.getElementById('action-area');
+        if (actionArea) {
+          actionArea.innerHTML = `
+            <button class="btn" id="confirm-proceed-btn" style="font-size:12px;color:#6b7280">それでも実行する</button>
+            <a href="/new" class="btn">戻る</a>
+          `;
+          // proceed ボタンを再バインド（duplicate override あり）
+          const overrideBtn = document.getElementById('confirm-proceed-btn');
+          if (overrideBtn) {
+            overrideBtn.addEventListener('click', async () => {
+              await executeProceed({ data, pm, duplicateWarningShown: true, duplicateOverride: true });
+            });
+          }
+        }
+      } else if (currentPreRunPreview && !currentPreRunPreview.duplicateWarning) {
+        // duplicate warning なし → 軽量な状態カードを表示
+        warningContainer.innerHTML = renderPreRunPreviewCard(currentPreRunPreview);
+      }
+    } catch {
+      // 取得失敗は無視（confirm フローを止めない）
+    }
+  })();
 
   // Wire up radio button interactions
   document.querySelectorAll('input[name="file-type-choice"]').forEach(radio => {
@@ -1354,93 +1462,92 @@ async function renderConfirmPage() {
     });
   }
 
-  // Proceed button
-  const proceedBtn = document.getElementById('confirm-proceed-btn');
-  if (proceedBtn) {
-    proceedBtn.addEventListener('click', async () => {
-      const choice = document.querySelector('input[name="file-type-choice"]:checked')?.value;
-      const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
-      const fs = data.formState;
+  async function executeProceed({ data, pm, duplicateWarningShown = false, duplicateOverride = false } = {}) {
+    const choice = document.querySelector('input[name="file-type-choice"]:checked')?.value;
+    const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+    const fs = data.formState;
 
-      // Update ingest options with confirmed header
-      const ingestOptions = {
-        encoding: document.getElementById('retry-encoding')?.value || fs.encoding,
-        delimiter: fs.delimiter,
-        hasHeader,
-      };
+    const ingestOptions = {
+      encoding: document.getElementById('retry-encoding')?.value || fs.encoding,
+      delimiter: fs.delimiter,
+      hasHeader,
+    };
 
-      // Determine selected profile
-      let selectedProfileId = null;
-      if (choice === 'known' && pm.profile) {
-        selectedProfileId = pm.profile.id;
-      } else if (choice === 'alt') {
-        selectedProfileId = document.getElementById('alt-profile-select')?.value;
-      }
-      // choice === 'new' → no profile
+    let selectedProfileId = null;
+    if (choice === 'known' && pm.profile) {
+      selectedProfileId = pm.profile.id;
+    } else if (choice === 'alt') {
+      selectedProfileId = document.getElementById('alt-profile-select')?.value;
+    }
 
+    const proceedBtn = document.getElementById('confirm-proceed-btn');
+    if (proceedBtn) {
       proceedBtn.disabled = true;
       proceedBtn.textContent = '実行中...';
+    }
 
-      try {
-        let result;
-        if (data.filePath && !fs.uploadedFiles?.length) {
-          // Local path execution
-          result = await api('/api/runs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              mode: fs.mode,
-              configPath: fs.configPath,
-              filePaths: [data.filePath],
-              ingestOptions,
-            }),
-          });
+    try {
+      let result;
+      if (data.filePath && !fs.uploadedFiles?.length) {
+        result = await api('/api/runs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            mode: fs.mode,
+            configPath: fs.configPath,
+            filePaths: [data.filePath],
+            ingestOptions,
+            duplicateWarningShown,
+            duplicateOverride,
+          }),
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('mode', fs.mode);
+        if (fs.configPath) formData.append('configPath', fs.configPath);
+        if (fs.uploadedFiles) {
+          for (const f of fs.uploadedFiles) formData.append('files', f);
         } else {
-          // Uploaded file execution
-          const formData = new FormData();
-          formData.append('mode', fs.mode);
-          if (fs.configPath) formData.append('configPath', fs.configPath);
-          if (fs.uploadedFiles) {
-            for (const f of fs.uploadedFiles) formData.append('files', f);
-          } else {
-            for (const f of uploadedFiles) formData.append('files', f);
-          }
-          if (fs.filePathsText?.length > 0) {
-            formData.append('filePaths', JSON.stringify(fs.filePathsText));
-          }
-          formData.append('ingestOptions', JSON.stringify(ingestOptions));
-
-          const res = await fetch('/api/runs', { method: 'POST', body: formData });
-          if (!res.ok) {
-            const body = await res.json().catch(() => ({}));
-            throw new Error(body.error || `HTTP ${res.status}`);
-          }
-          result = await res.json();
+          for (const f of uploadedFiles) formData.append('files', f);
         }
-
-        // If new file → go to column review; if known file → go to run detail
-        if (choice === 'new') {
-          pendingConfirmation = {
-            ...data,
-            runId: result.id,
-            selectedProfileId: null,
-          };
-          navigate(`/runs/${result.id}/columns`);
-        } else if (selectedProfileId) {
-          pendingConfirmation = {
-            ...data,
-            runId: result.id,
-            selectedProfileId,
-          };
-          navigate(`/runs/${result.id}/columns`);
-        } else {
-          navigate(`/runs/${result.id}`);
+        if (fs.filePathsText?.length > 0) {
+          formData.append('filePaths', JSON.stringify(fs.filePathsText));
         }
-      } catch (err) {
-        proceedBtn.disabled = false;
-        proceedBtn.textContent = '確認して実行';
-        alert('実行に失敗しました: ' + err.message);
+        formData.append('ingestOptions', JSON.stringify(ingestOptions));
+        if (duplicateWarningShown) formData.append('duplicateWarningShown', 'true');
+        if (duplicateOverride) formData.append('duplicateOverride', 'true');
+
+        const res = await fetch('/api/runs', { method: 'POST', body: formData });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${res.status}`);
+        }
+        result = await res.json();
       }
+
+      if (choice === 'new') {
+        pendingConfirmation = { ...data, runId: result.id, selectedProfileId: null };
+        navigate(`/runs/${result.id}/columns`);
+      } else if (selectedProfileId) {
+        pendingConfirmation = { ...data, runId: result.id, selectedProfileId };
+        navigate(`/runs/${result.id}/columns`);
+      } else {
+        navigate(`/runs/${result.id}`);
+      }
+    } catch (err) {
+      if (proceedBtn) {
+        proceedBtn.disabled = false;
+        proceedBtn.textContent = duplicateOverride ? 'それでも実行する' : '確認して実行';
+      }
+      alert('実行に失敗しました: ' + err.message);
+    }
+  }
+
+  // Proceed button（duplicate warning がない場合の通常フロー）
+  const proceedBtn = document.getElementById('confirm-proceed-btn');
+  if (proceedBtn) {
+    proceedBtn.addEventListener('click', () => {
+      executeProceed({ data, pm });
     });
   }
 }
