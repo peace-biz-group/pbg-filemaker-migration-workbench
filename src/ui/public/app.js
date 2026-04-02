@@ -563,6 +563,12 @@ function showPreviewModal(data) {
       ` : ''}
       ${renderMojibakeWarnings(data.mojibakeScan, (data.diagnosis || {}).appliedEncoding)}
       ${renderHeaderWarnings(data.headerDetection, (data.diagnosis || {}).headerApplied !== false)}
+      ${data.parseErrorHelp ? `
+        <div class="warning-banner" style="background:#fff7ed;border:1px solid #fdba74">
+          <p style="margin-bottom:4px">${escapeHtml(data.parseErrorHelp.message || '')}</p>
+          <p style="margin-bottom:0">${escapeHtml(data.parseErrorHelp.detail || '')}</p>
+        </div>
+      ` : ''}
       ${data.sampleRows && data.sampleRows.length > 0 ? renderDataTable(data.columns, data.sampleRows) : '<p class="empty">データなし</p>'}
     </div>
   `;
@@ -662,6 +668,55 @@ function formatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
+function friendlyOutputName(fileName, inputFilesLabel = '') {
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
+  const hh = String(now.getHours()).padStart(2, '0');
+  const min = String(now.getMinutes()).padStart(2, '0');
+  const base = (inputFilesLabel.split(',')[0] || 'ファイル').replace(/\.[^.]+$/, '').trim();
+  const labelMap = {
+    'normalized.csv': '正規化',
+    'quarantine.csv': '別に分けたもの',
+    'duplicates.csv': '同じかもしれないもの',
+    'classified.csv': '分けた結果',
+    'summary.json': '確認結果',
+  };
+  const label = labelMap[fileName] || fileName;
+  return `${yy}${mm}${dd}_${hh}${min}_${base}_${label}`;
+}
+
+function groupProfilesByCategory(profiles = []) {
+  const map = new Map();
+  for (const p of profiles) {
+    const cat = p.category || 'その他';
+    if (!map.has(cat)) map.set(cat, []);
+    map.get(cat).push(p);
+  }
+  return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ja'));
+}
+
+function inferMeaningFromColumnName(name = '') {
+  const n = String(name).toLowerCase();
+  const rules = [
+    { re: /(日付|date|許可日|完了日|更新日)/i, v: '日付' },
+    { re: /(会社|法人|企業|メーカー)/i, v: '会社名' },
+    { re: /(担当者|担当|contact|person)/i, v: '担当者名' },
+    { re: /(電話|tel|phone|携帯)/i, v: '電話番号' },
+    { re: /(fax)/i, v: 'FAX' },
+    { re: /(mail|メール|e-mail)/i, v: 'メール' },
+    { re: /(住所|所在地|address)/i, v: '住所' },
+    { re: /(顧客id|customer.?id|id)/i, v: '顧客ID' },
+    { re: /(備考|メモ|note)/i, v: '備考' },
+    { re: /(ステータス|status|結果)/i, v: 'ステータス' },
+    { re: /(契約者|契約)/i, v: '契約者' },
+    { re: /(営業担当|営業)/i, v: '営業担当' },
+  ];
+  const hit = rules.find((r) => r.re.test(n));
+  return hit ? hit.v : '';
+}
+
 // --- Run Detail ---
 
 async function renderRunDetail(runId) {
@@ -693,17 +748,25 @@ async function renderRunDetail(runId) {
     const hasParseQuarantine = csvFiles.includes('parse-quarantine.csv');
 
     let html = `
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-        <h2 style="font-size:18px">
-          Run: ${run.mode} ${statusBadge}
-        </h2>
+      <div class="card" style="margin-bottom:12px">
+        <h2 style="font-size:20px;margin-bottom:6px">終わりました ${statusBadge}</h2>
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
+          つぎに進むときは「詳細を見る」を押してください。
+        </p>
         <div class="btn-group">
-          <button class="btn btn-primary" id="btn-start-review-from-run" title="列レビューを開始">列レビュー</button>
-          <button class="btn" id="btn-rerun" title="同じ設定で再実行">再実行</button>
-          <button class="btn btn-danger" id="btn-delete" title="この Run を削除">削除</button>
-          <a href="/" class="btn">ダッシュボードに戻る</a>
+          <a href="/" class="btn btn-primary">Homeに戻る</a>
+          <button class="btn" id="btn-show-details">詳細を見る</button>
         </div>
       </div>
+      <div id="run-detail-advanced" style="display:none">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+          <h2 style="font-size:18px">実行のくわしい情報</h2>
+          <div class="btn-group">
+            <button class="btn btn-primary" id="btn-start-review-from-run" title="列の確認を開始">列の確認</button>
+            <button class="btn" id="btn-rerun" title="同じ設定で再実行">もう一度実行</button>
+            <button class="btn btn-danger" id="btn-delete" title="この Run を削除">削除</button>
+          </div>
+        </div>
     `;
 
     // Error display
@@ -724,9 +787,9 @@ async function renderRunDetail(runId) {
           <div class="stat"><div class="label">レコード数</div><div class="value">${(summary.recordCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">カラム数</div><div class="value">${summary.columnCount || 0}</div></div>
           <div class="stat"><div class="label">正規化済み</div><div class="value">${(summary.normalizedCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">確認が必要</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">Parse エラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">重複グループ</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">別に分けたもの</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">読み取りエラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">同じかも</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
         </div>
         ${run.ingestDiagnoses && Object.keys(run.ingestDiagnoses).length > 0 ? `
           <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
@@ -753,13 +816,13 @@ async function renderRunDetail(runId) {
 
     // Tabs
     const tabs = [];
-    if (hasNormalized) tabs.push({ id: 'compare', label: 'Before / After 比較', file: 'normalized.csv', special: 'compare' });
+    if (hasNormalized) tabs.push({ id: 'compare', label: '前と後をくらべる', file: 'normalized.csv', special: 'compare' });
     if (hasNormalized) tabs.push({ id: 'normalized', label: '正規化データ', file: 'normalized.csv' });
-    if (hasAnomalies) tabs.push({ id: 'anomalies', label: '異常値', file: 'anomalies.csv' });
-    if (hasDuplicates) tabs.push({ id: 'duplicates', label: '重複候補', file: 'duplicates.csv', special: 'dup-groups' });
-    if (hasQuarantine) tabs.push({ id: 'quarantine', label: 'Quarantine', file: 'quarantine.csv' });
-    if (hasParseQuarantine) tabs.push({ id: 'parse-quarantine', label: 'Parse エラー', file: 'parse-quarantine.csv' });
-    if (hasClassified) tabs.push({ id: 'classified', label: '分類結果', file: 'classified.csv' });
+    if (hasAnomalies) tabs.push({ id: 'anomalies', label: 'おかしいデータ', file: 'anomalies.csv' });
+    if (hasDuplicates) tabs.push({ id: 'duplicates', label: '同じかもしれないもの', file: 'duplicates.csv', special: 'dup-groups' });
+    if (hasQuarantine) tabs.push({ id: 'quarantine', label: '別に分けたもの', file: 'quarantine.csv' });
+    if (hasParseQuarantine) tabs.push({ id: 'parse-quarantine', label: '読み取りエラー', file: 'parse-quarantine.csv' });
+    if (hasClassified) tabs.push({ id: 'classified', label: '分けた結果', file: 'classified.csv' });
 
     if (tabs.length > 0) {
       html += '<div class="card"><h2>結果レビュー</h2>';
@@ -782,12 +845,22 @@ async function renderRunDetail(runId) {
         <h2>出力ファイル</h2>
         <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">保存先: ${escapeHtml(run.outputDir)}</p>
         <ul class="file-list">
-          ${files.map(f => `<li><a href="/api/runs/${runId}/raw/${f}" target="_blank">${f}</a></li>`).join('')}
+          ${files.map(f => `<li><a href="/api/runs/${runId}/raw/${f}" target="_blank">${friendlyOutputName(f, inputFiles)}</a></li>`).join('')}
         </ul>
       </div>
     `;
 
+    html += '</div>';
+
     app.innerHTML = html;
+
+    document.getElementById('btn-show-details')?.addEventListener('click', () => {
+      const box = document.getElementById('run-detail-advanced');
+      if (!box) return;
+      const shown = box.style.display !== 'none';
+      box.style.display = shown ? 'none' : '';
+      document.getElementById('btn-show-details').textContent = shown ? '詳細を見る' : '詳細を隠す';
+    });
 
     // 列確認カードを非同期でロード
     loadColumnStatusCard(runId);
@@ -1094,7 +1167,7 @@ async function loadDuplicateGroups(runId, tabDef) {
       name_address: '氏名+住所',
     };
 
-    let html = `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${data.totalGroups} グループの重複候補</p>`;
+    let html = `<p style="font-size:12px;color:var(--text-secondary);margin-bottom:12px">${data.totalGroups} グループの同じかもしれないもの</p>`;
 
     for (const group of data.groups) {
       const typeLabel = matchTypeLabels[group.matchType] || group.matchType;
@@ -1267,7 +1340,7 @@ async function renderConfirmPage() {
     </div>
 
     <div class="card">
-      <h2>このファイルは何の一覧ですか？</h2>
+      <h2>このファイルは何ですか？</h2>
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
         ファイル名: <strong>${escapeHtml(data.filename)}</strong>
       </p>
@@ -1299,21 +1372,32 @@ async function renderConfirmPage() {
   }
 
   // Alternatives
+  const groupedProfiles = groupProfilesByCategory(allProfiles);
+
   if (pm.alternatives && pm.alternatives.length > 0) {
     html += `<div class="confirm-choice-card" id="choice-alt">
       <div class="confirm-choice-header">
         <input type="radio" name="file-type-choice" value="alt">
         <strong>別の種別を選ぶ</strong>
       </div>
+      <button type="button" class="btn btn-sm" id="toggle-all-types" style="margin:8px 0 0 24px">一覧を開く</button>
       <div class="confirm-alt-list" style="margin:8px 0 0 24px;display:none">
-        <select id="alt-profile-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
+        <input type="hidden" id="alt-profile-select" value="${escapeHtml(pm.alternatives[0]?.profile.id || '')}">
+        <div class="choice-row">
           ${pm.alternatives.map(a =>
-            `<option value="${escapeHtml(a.profile.id)}">${escapeHtml(a.profile.label)} (${escapeHtml(a.reason)})</option>`
+            `<button type="button" class="btn btn-sm alt-profile-btn" data-profile-id="${escapeHtml(a.profile.id)}">${escapeHtml(a.profile.label)}</button>`
           ).join('')}
-          ${allProfiles.filter(p => p.id !== pm.profile?.id && !pm.alternatives.some(a => a.profile.id === p.id)).map(p =>
-            `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`
-          ).join('')}
-        </select>
+        </div>
+        ${groupedProfiles.map(([cat, items]) => `
+          <div style="margin-top:10px">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${escapeHtml(cat)}</div>
+            <div class="choice-row">
+              ${items.filter(p => p.id !== pm.profile?.id).map(p =>
+                `<button type="button" class="btn btn-sm alt-profile-btn" data-profile-id="${escapeHtml(p.id)}">${escapeHtml(p.label)}</button>`
+              ).join('')}
+            </div>
+          </div>
+        `).join('')}
       </div>
     </div>`;
   } else if (allProfiles.length > 0) {
@@ -1322,12 +1406,19 @@ async function renderConfirmPage() {
         <input type="radio" name="file-type-choice" value="alt" ${!pm.profile ? 'checked' : ''}>
         <strong>既存の種別から選ぶ</strong>
       </div>
+      <button type="button" class="btn btn-sm" id="toggle-all-types" style="margin:8px 0 0 24px;${pm.profile ? '' : 'display:none'}">一覧を閉じる</button>
       <div class="confirm-alt-list" style="margin:8px 0 0 24px;${pm.profile ? 'display:none' : ''}">
-        <select id="alt-profile-select" style="padding:6px 10px;border:1px solid var(--border);border-radius:4px;font-size:13px">
-          ${allProfiles.map(p =>
-            `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)} (${escapeHtml(p.category)})</option>`
-          ).join('')}
-        </select>
+        <input type="hidden" id="alt-profile-select" value="${escapeHtml(allProfiles[0]?.id || '')}">
+        ${groupedProfiles.map(([cat, items]) => `
+          <div style="margin-top:10px">
+            <div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px">${escapeHtml(cat)}</div>
+            <div class="choice-row">
+              ${items.map(p =>
+                `<button type="button" class="btn btn-sm alt-profile-btn" data-profile-id="${escapeHtml(p.id)}">${escapeHtml(p.label)}</button>`
+              ).join('')}
+            </div>
+          </div>
+        `).join('')}
       </div>
     </div>`;
   }
@@ -1337,10 +1428,10 @@ async function renderConfirmPage() {
     <div class="confirm-choice-card" id="choice-new">
       <div class="confirm-choice-header">
         <input type="radio" name="file-type-choice" value="new" ${!pm.profile && allProfiles.length === 0 ? 'checked' : ''}>
-        <strong>新しいファイルとして扱う</strong>
+        <strong>はじめての種類として進む</strong>
       </div>
       <p style="font-size:12px;color:var(--text-secondary);margin:4px 0 0 24px">
-        列ごとの意味を入力して、新しいファイル種別を作ります
+        列を確認しながら新しい種類として登録します
       </p>
     </div>
   </div>
@@ -1417,7 +1508,7 @@ async function renderConfirmPage() {
   // Action buttons
   html += `
     <div id="action-area" style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn btn-primary" id="confirm-proceed-btn">確認して実行</button>
+      <button class="btn btn-primary" id="confirm-proceed-btn">この内容で進む</button>
       <a href="/new" class="btn">戻る</a>
     </div>
   `;
@@ -1549,6 +1640,30 @@ async function renderConfirmPage() {
     });
   });
 
+  document.querySelectorAll('.alt-profile-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const hidden = document.getElementById('alt-profile-select');
+      if (hidden) hidden.value = btn.dataset.profileId || '';
+      document.querySelectorAll('.alt-profile-btn').forEach(b => b.classList.remove('btn-primary'));
+      btn.classList.add('btn-primary');
+      const altRadio = document.querySelector('input[name="file-type-choice"][value="alt"]');
+      if (altRadio) altRadio.checked = true;
+      document.querySelectorAll('.confirm-choice-card').forEach(c => c.classList.remove('selected'));
+      document.getElementById('choice-alt')?.classList.add('selected');
+      const altList = document.querySelector('.confirm-alt-list');
+      if (altList) altList.style.display = '';
+    });
+  });
+
+  document.getElementById('toggle-all-types')?.addEventListener('click', () => {
+    const altList = document.querySelector('.confirm-alt-list');
+    const btn = document.getElementById('toggle-all-types');
+    if (!altList || !btn) return;
+    const opening = altList.style.display === 'none';
+    altList.style.display = opening ? '' : 'none';
+    btn.textContent = opening ? '一覧を閉じる' : '一覧を開く';
+  });
+
   // Retry encoding button
   const retryBtn = document.getElementById('retry-encoding-btn');
   if (retryBtn) {
@@ -1674,7 +1789,7 @@ async function renderConfirmPage() {
         activeBtn.disabled = false;
         activeBtn.textContent = forceColumnsNav
           ? '列を確認する（おすすめ）'
-          : (duplicateOverride ? 'それでも実行する' : '確認して実行');
+          : (duplicateOverride ? 'それでも実行する' : 'この内容で進む');
       }
       alert('実行に失敗しました: ' + err.message);
     }
@@ -1688,7 +1803,7 @@ async function renderConfirmPage() {
     });
   }
 
-  // Fast path button handler — known file を列レビューなしで進める
+  // Fast path button handler — known file を列の確認なしで進める
   const fastPathBtn = document.getElementById('fast-path-btn');
   if (fastPathBtn) {
     fastPathBtn.addEventListener('click', async () => {
@@ -1738,7 +1853,7 @@ async function renderConfirmPage() {
           runResult = await res.json();
         }
 
-        // fast path で列レビューをスキップして normalize 再実行
+        // fast path で列の確認をスキップして normalize 再実行
         const fastResult = await api(`/api/runs/${runResult.id}/fast-path`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1859,9 +1974,9 @@ async function renderColumnReview(runId) {
       profileRequired: profileCol?.required ?? false,
       profileRule: profileCol?.rule || '',
       samples,
-      meaning: existing?.meaning ?? profileCol?.label ?? '',
-      inUse: existing?.inUse ?? 'unknown',
-      required: existing?.required ?? (profileCol?.required ? 'yes' : 'unknown'),
+      meaning: existing?.meaning ?? profileCol?.label ?? inferMeaningFromColumnName(col),
+      inUse: existing?.inUse ?? 'yes',
+      required: existing?.required ?? 'yes',
       rule: existing?.rule ?? profileCol?.rule ?? '',
     };
   });
@@ -1929,24 +2044,24 @@ async function renderColumnReview(runId) {
 
         <div class="column-review-fields">
           <div class="column-review-field">
-            <label>この列は何を入れる場所ですか？</label>
+            <label>この列は何を入れる場所ですか？（自由記入）</label>
             <input type="text" class="col-meaning" value="${escapeHtml(entry.meaning)}" placeholder="例: 会社名、電話番号 など">
           </div>
           <div class="column-review-field">
             <label>今も使いますか？</label>
-            <select class="col-inuse">
-              <option value="unknown" ${entry.inUse === 'unknown' ? 'selected' : ''}>わからない</option>
-              <option value="yes" ${entry.inUse === 'yes' ? 'selected' : ''}>はい</option>
-              <option value="no" ${entry.inUse === 'no' ? 'selected' : ''}>いいえ（不要）</option>
-            </select>
+            <div class="choice-row">
+              <label><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="yes" ${entry.inUse === 'yes' ? 'checked' : ''}> はい</label>
+              <label><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> いいえ</label>
+              <label><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="unknown" ${entry.inUse === 'unknown' ? 'checked' : ''}> まだ分からない</label>
+            </div>
           </div>
           <div class="column-review-field">
             <label>必須ですか？</label>
-            <select class="col-required">
-              <option value="unknown" ${entry.required === 'unknown' ? 'selected' : ''}>わからない</option>
-              <option value="yes" ${entry.required === 'yes' ? 'selected' : ''}>はい（必須）</option>
-              <option value="no" ${entry.required === 'no' ? 'selected' : ''}>いいえ</option>
-            </select>
+            <div class="choice-row">
+              <label><input type="radio" name="required-${entry.position}" class="col-required" value="yes" ${entry.required === 'yes' ? 'checked' : ''}> はい</label>
+              <label><input type="radio" name="required-${entry.position}" class="col-required" value="no" ${entry.required === 'no' ? 'checked' : ''}> いいえ</label>
+              <label><input type="radio" name="required-${entry.position}" class="col-required" value="unknown" ${entry.required === 'unknown' ? 'checked' : ''}> まだ分からない</label>
+            </div>
           </div>
           <div class="column-review-field">
             <label>入力ルールがありますか？</label>
@@ -1978,8 +2093,8 @@ async function renderColumnReview(runId) {
         label: columns[pos] || '',
         key: entries[pos]?.profileKey || columns[pos] || '',
         meaning: item.querySelector('.col-meaning')?.value || '',
-        inUse: item.querySelector('.col-inuse')?.value || 'unknown',
-        required: item.querySelector('.col-required')?.value || 'unknown',
+        inUse: item.querySelector('.col-inuse:checked')?.value || 'yes',
+        required: item.querySelector('.col-required:checked')?.value || 'yes',
         rule: item.querySelector('.col-rule')?.value || '',
       });
     });
@@ -2005,7 +2120,7 @@ async function renderColumnReview(runId) {
   document.getElementById('save-review-btn-bottom')?.addEventListener('click', saveHandler);
 }
 
-// --- 列レビュー保存後のサマリ表示 ---
+// --- 列の確認保存後のサマリ表示 ---
 function showColumnReviewSummary(runId, profileId, summary) {
   const { activeCount, unusedCount, pendingCount } = summary;
 

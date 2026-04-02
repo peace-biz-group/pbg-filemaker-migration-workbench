@@ -54,6 +54,7 @@ function getAllColumns(meta: RunMeta): string[] {
   const cols = meta.inputColumns ?? {};
   const seen = new Set<string>();
   for (const colList of Object.values(cols)) {
+    if (!Array.isArray(colList)) continue;
     for (const c of colList) seen.add(c);
   }
   return [...seen].sort();

@@ -275,7 +275,7 @@ describe('buildColumnsDriftContext', () => {
 
   it('列が変わっていない場合 addedColumns と removedColumns が空', async () => {
     const file = join(F, 'utf8.csv');
-    const r1 = await executeRun('profile', [file], config);
+    await executeRun('profile', [file], config);
     const r2 = await executeRun('profile', [file], config);
 
     const ctx = buildColumnsDriftContext(OUTPUT, r2.id);
