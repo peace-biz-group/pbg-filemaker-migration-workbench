@@ -28,7 +28,13 @@ import {
   loadEffectiveMapping,
   findEffectiveMappings,
 } from '../core/effective-mapping.js';
-import { buildPreRunDiffPreview, buildColumnsDriftContext } from '../core/pre-run-diff.js';
+import { detectHeaderLikelihood } from '../ingest/header-detector.js';
+import { scanForMojibake } from '../ingest/mojibake-detector.js';
+import {
+  createReview, listReviews, getReview, updateReviewColumns,
+  updateReviewSummary, deleteReview as deleteReviewBundle,
+  getReviewOutputFiles, generateBundle,
+} from '../core/review-bundle.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -39,6 +45,15 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
   // Load file profiles on startup
   loadProfiles(baseOutputDir);
+
+  // Resolved bundle directory for submitted review bundles
+  const resolvedBundleDir = resolve(bundleDir || join(baseOutputDir, 'review-bundles'));
+  const submittedDir = join(resolvedBundleDir, 'submitted');
+  const checkedDir = join(resolvedBundleDir, 'checked');
+  const reworkDir = join(resolvedBundleDir, 'rework');
+  for (const d of [submittedDir, checkedDir, reworkDir]) {
+    mkdirSync(d, { recursive: true });
+  }
 
   // Static files
   app.use('/static', express.static(join(__dirname, 'public')));
@@ -189,39 +204,11 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         }
       }
 
-      const dupWarningShown = req.body.duplicateWarningShown === 'true' || req.body.duplicateWarningShown === true;
-      const dupOverride = req.body.duplicateOverride === 'true' || req.body.duplicateOverride === true;
-      const schemaDriftWarningShown = req.body.schemaDriftWarningShown === 'true' || req.body.schemaDriftWarningShown === true;
-      const schemaDriftOverride = req.body.schemaDriftOverride === 'true' || req.body.schemaDriftOverride === true;
-      const meta = await executeRun(mode, inputFiles, config, configPath, {
-        ...(dupWarningShown ? { duplicateWarningShown: true } : {}),
-        ...(dupOverride ? { duplicateOverride: true } : {}),
-        ...(schemaDriftWarningShown ? { schemaDriftWarningShown: true } : {}),
-        ...(schemaDriftOverride ? { schemaDriftOverride: true } : {}),
-      });
+      const meta = await executeRun(mode, inputFiles, config, configPath);
       res.json(meta);
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Execution failed' });
     }
-  });
-
-  // --- API: Run diff summary v1 ---
-  app.get('/api/runs/:id/diff', (req, res) => {
-    const run = getRun(baseOutputDir, req.params.id);
-    if (!run) return res.status(404).json({ error: 'Run not found' });
-
-    const summary = buildRunDiffSummaryV1(baseOutputDir, run);
-    if (!summary) {
-      return res.json({
-        version: 1,
-        currentRunId: run.id,
-        classification: 'no_comparable',
-        classificationLabel: '比較対象なし',
-        generatedAt: new Date().toISOString(),
-      });
-    }
-    saveRunDiffSummary(run.outputDir, summary);
-    res.json(summary);
   });
 
   // --- API: Delete a run ---
@@ -505,6 +492,101 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     }
   });
 
+  // ===== Review API =====
+
+  // --- API: Create review from a run ---
+  app.post('/api/reviews', async (req, res) => {
+    try {
+      const { runId, fileIndex, configPath } = req.body;
+      if (!runId) return res.status(400).json({ error: 'runId is required' });
+      const config = loadConfig(configPath || undefined);
+      config.outputDir = baseOutputDir;
+      const review = await createReview(runId, baseOutputDir, config, fileIndex ?? 0);
+      res.json(review);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to create review' });
+    }
+  });
+
+  // --- API: List reviews ---
+  app.get('/api/reviews', (_req, res) => {
+    res.json(listReviews(baseOutputDir));
+  });
+
+  // --- API: Get review detail ---
+  app.get('/api/reviews/:id', (req, res) => {
+    const review = getReview(baseOutputDir, req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Update column reviews ---
+  app.put('/api/reviews/:id/columns', (req, res) => {
+    const updates = req.body;
+    if (!Array.isArray(updates)) return res.status(400).json({ error: 'Expected array of column updates' });
+    const review = updateReviewColumns(baseOutputDir, req.params.id, updates);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Update review summary ---
+  app.put('/api/reviews/:id/summary', (req, res) => {
+    const review = updateReviewSummary(baseOutputDir, req.params.id, req.body);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    res.json(review);
+  });
+
+  // --- API: Finalize review → generate bundle + copy to submitted ---
+  app.post('/api/reviews/:id/finalize', async (req, res) => {
+    try {
+      const files = generateBundle(baseOutputDir, req.params.id);
+      const review = getReview(baseOutputDir, req.params.id);
+      if (review) {
+        const { cpSync } = await import('node:fs');
+        const srcDir = join(baseOutputDir, 'reviews', req.params.id);
+        const destDir = join(submittedDir, req.params.id);
+        mkdirSync(destDir, { recursive: true });
+        cpSync(srcDir, destDir, { recursive: true });
+      }
+      res.json({ files, savedTo: submittedDir });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Bundle generation failed' });
+    }
+  });
+
+  // --- API: List review output files ---
+  app.get('/api/reviews/:id/files', (req, res) => {
+    res.json(getReviewOutputFiles(baseOutputDir, req.params.id));
+  });
+
+  // --- API: Download review bundle file ---
+  app.get('/api/reviews/:id/raw/:filename', (req, res) => {
+    const review = getReview(baseOutputDir, req.params.id);
+    if (!review) return res.status(404).json({ error: 'Review not found' });
+    const dir = join(baseOutputDir, 'reviews', req.params.id);
+    const filePath = join(dir, req.params.filename);
+    if (!existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+    res.sendFile(resolve(filePath));
+  });
+
+  // --- API: Delete review ---
+  app.delete('/api/reviews/:id', (req, res) => {
+    const deleted = deleteReviewBundle(baseOutputDir, req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Review not found' });
+    res.json({ ok: true });
+  });
+
+  // --- API: Server info (for admin display) ---
+  app.get('/api/server-info', (_req, res) => {
+    res.json({
+      bundleDir: resolvedBundleDir,
+      submittedDir,
+      checkedDir,
+      reworkDir,
+      outputDir: baseOutputDir,
+    });
+  });
+
   // --- API: List all file profiles ---
   app.get('/api/profiles', (_req, res) => {
     res.json(getProfiles());
@@ -678,31 +760,67 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     }
   });
 
-  // --- API: Pre-run diff preview (confirm 段階で実行前に比較) ---
-  app.get('/api/pre-run-preview', (req, res) => {
-    const filename = String(req.query.filename ?? '');
-    if (!filename) {
-      return res.status(400).json({ error: 'filename は必須です' });
+  // --- API: Fast path — known file を列レビューなしで進める ---
+  app.post('/api/runs/:id/fast-path', async (req, res) => {
+    try {
+      const runId = req.params.id;
+      const { profileId, columns } = req.body as { profileId?: string; columns?: string[] };
+
+      if (!profileId) {
+        return res.status(400).json({ error: 'profileId が必要です' });
+      }
+
+      const original = getRun(baseOutputDir, runId);
+      if (!original) return res.status(404).json({ error: 'Run が見つかりません' });
+
+      const profile = profileId !== 'new' ? getProfileById(profileId) : null;
+      if (!profile) {
+        return res.status(400).json({ error: 'fast path はプロファイルが必要です' });
+      }
+
+      // profile の列定義から自動レビューを生成（全て inUse=yes）
+      const actualColumns = Array.isArray(columns) ? columns : [];
+      const autoReviews = buildAutoReviews(profile.columns, actualColumns);
+
+      // 列レビューを保存
+      saveColumnReview(baseOutputDir, runId, profileId, autoReviews);
+
+      // 実効 mapping を生成して保存
+      const effectiveResult = buildEffectiveMapping(runId, profileId, autoReviews, profile.columns);
+      saveEffectiveMapping(baseOutputDir, effectiveResult);
+
+      // fast path で進んだことを run meta に記録
+      patchRunMeta(baseOutputDir, runId, {
+        usedFastPath: true,
+        fastPathProfileId: profileId,
+        skippedColumnReview: true,
+      });
+
+      // rerun-with-review と同じロジックで normalize を再実行
+      const configPath = original.configPath || undefined;
+      const config = loadConfig(configPath);
+      config.outputDir = baseOutputDir;
+
+      const meta = await executeRun(
+        'normalize',
+        original.inputFiles,
+        config,
+        configPath,
+        { effectiveMapping: effectiveResult.mapping, profileId },
+      );
+
+      res.json({
+        ok: true,
+        runId: meta.id,
+        effectiveSummary: {
+          activeCount: effectiveResult.activeCount,
+          unusedCount: effectiveResult.unusedCount,
+          pendingCount: effectiveResult.pendingCount,
+        },
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : '実行に失敗しました' });
     }
-    const sourceFileHash = req.query.sourceFileHash ? String(req.query.sourceFileHash) : undefined;
-    const schemaFingerprint = req.query.schemaFingerprint ? String(req.query.schemaFingerprint) : undefined;
-    const columnCount = req.query.columnCount ? (parseInt(String(req.query.columnCount), 10) || 0) : 0;
-
-    const preview = buildPreRunDiffPreview(baseOutputDir, {
-      filename,
-      sourceFileHash,
-      schemaFingerprint,
-      columnCount,
-    });
-    res.json(preview);
-  });
-
-  // --- API: Columns drift context (schema drift 後の columns 画面用) ---
-  app.get('/api/runs/:id/drift-context', (req, res) => {
-    const runId = req.params.id;
-    const ctx = buildColumnsDriftContext(baseOutputDir, runId);
-    if (!ctx) return res.json(null);
-    res.json(ctx);
   });
 
   // --- API: List config files ---
