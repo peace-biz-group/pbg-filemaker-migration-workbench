@@ -39,6 +39,40 @@ import {
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
 
+function decodeUploadedFilename(name: string): string {
+  try {
+    // multer/busboy may decode as latin1; re-decode to UTF-8 when possible.
+    const decoded = Buffer.from(name, 'latin1').toString('utf8');
+    if (decoded.includes('\uFFFD')) return name;
+    return decoded;
+  } catch {
+    return name;
+  }
+}
+
+function toUserFacingCsvError(err: unknown): { message: string; detail?: string } {
+  const raw = err instanceof Error ? err.message : String(err);
+  const lineMatch = raw.match(/line[:\s]+(\d+)/i);
+  const lineInfo = lineMatch ? `（${lineMatch[1]}行目あたり）` : '';
+
+  if (/Invalid Closing Quote/i.test(raw) || /Quote Not Closed/i.test(raw)) {
+    return {
+      message: `このCSVはそのまま読めませんでした${lineInfo}。途中の記号の並びがおかしい可能性があります。`,
+      detail: '文字コードを UTF-8 / CP932 で切り替えるか、FileMaker からタブ区切りで出し直してください。',
+    };
+  }
+  if (/CSV_RECORD_INCONSISTENT_FIELDS_LENGTH|Invalid Record Length/i.test(raw)) {
+    return {
+      message: `このCSVは行ごとの項目数がそろっていません${lineInfo}。`,
+      detail: 'CSVを書き出し直すか、タブ区切りで再出力して試してください。',
+    };
+  }
+  return {
+    message: 'このファイルはそのまま読めませんでした。',
+    detail: '文字コードを切り替えるか、ファイルを書き出し直してお試しください。',
+  };
+}
+
 export function createApp(baseOutputDir: string, bundleDir?: string) {
   const app = express();
   app.use(express.json());
@@ -179,7 +213,8 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       if (uploaded && uploaded.length > 0) {
         const { renameSync } = await import('node:fs');
         inputFiles = uploaded.map((f) => {
-          const dest = join(uploadDir, f.originalname);
+          const readableName = decodeUploadedFilename(f.originalname);
+          const dest = join(uploadDir, readableName);
           renameSync(f.path, dest);
           return dest;
         });
@@ -401,6 +436,13 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       }
 
       const suggestions = generateMappingSuggestions(ir.schemaFingerprint, ir.columns);
+      const parseErrorHelp = ir.parseFailures.length > 0
+        ? {
+          message: 'このCSVはそのまま読めない行がありました。',
+          detail: '文字コードを切り替えるか、FileMaker からタブ区切りで出し直してください。',
+          firstRow: ir.parseFailures[0]?.rowIndex ?? null,
+        }
+        : null;
 
       // Header detection: analyze first sample row as potential header
       const firstDataRow = sampleRows[0] ? Object.values(sampleRows[0]) : [];
@@ -426,13 +468,19 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         columns: ir.columns,
         sampleRows,
         parseFailures: ir.parseFailures,
+        parseErrorHelp,
         mappingSuggestions: suggestions.suggestions,
         headerDetection,
         mojibakeScan,
         fileSize,
       });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'Preview failed' });
+      const userErr = toUserFacingCsvError(err);
+      res.status(500).json({
+        error: userErr.message,
+        detail: userErr.detail,
+        rawError: err instanceof Error ? err.message : String(err),
+      });
     }
   });
 
@@ -445,7 +493,8 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       }
 
       const { renameSync } = await import('node:fs');
-      const dest = join(uploadDir, uploaded.originalname);
+      const readableName = decodeUploadedFilename(uploaded.originalname);
+      const dest = join(uploadDir, readableName);
       renameSync(uploaded.path, dest);
 
       // Parse optional encoding/hasHeader overrides
@@ -467,13 +516,13 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       const isHeaderless = ir.diagnosis.headerApplied === false;
       // 実際の列数（ヘッダーなしでも ingest 後に確定している）
       const actualColumnCount = ir.columns.length;
-      const profileMatch = matchProfile(uploaded.originalname, ir.columns, {
+      const profileMatch = matchProfile(readableName, ir.columns, {
         isHeaderless,
         columnCount: actualColumnCount,
       });
 
       res.json({
-        filename: uploaded.originalname,
+        filename: readableName,
         filePath: dest,
         diagnosis: {
           detectedEncoding: ir.diagnosis.format === 'csv' ? ir.diagnosis.detectedEncoding : 'xlsx',
@@ -488,7 +537,12 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         schemaFingerprint: ir.schemaFingerprint,
       });
     } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : 'ファイルの読み取りに失敗しました' });
+      const userErr = toUserFacingCsvError(err);
+      res.status(500).json({
+        error: userErr.message,
+        detail: userErr.detail,
+        rawError: err instanceof Error ? err.message : String(err),
+      });
     }
   });
 

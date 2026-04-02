@@ -450,6 +450,23 @@ tr:hover td { background: #f0f4ff; }
   font-size: 13px;
   font-family: inherit;
 }
+
+.choice-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.choice-row label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+}
 .column-review-field input:focus,
 .column-review-field select:focus {
   outline: none;

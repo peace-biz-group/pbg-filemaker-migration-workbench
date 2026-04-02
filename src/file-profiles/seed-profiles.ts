@@ -10,7 +10,7 @@ export const SEED_PROFILES: FileProfile[] = [
   {
     id: 'customer-list',
     label: '顧客一覧',
-    filenameHints: ['顧客*', '*顧客*', 'customer*', '*customer*'],
+    filenameHints: ['顧客*', '*顧客*', 'customer*', '*customer*', '*太陽光顧客管理*', '*solar*customer*'],
     defaultEncoding: 'cp932',
     defaultHasHeader: true,
     columns: [
@@ -28,7 +28,7 @@ export const SEED_PROFILES: FileProfile[] = [
   {
     id: 'apo-list',
     label: 'アポイント一覧',
-    filenameHints: ['apo*', 'アポ*', '*アポ*', '*apo*'],
+    filenameHints: ['apo*', 'アポ*', 'appointment*', '*appointment*'],
     defaultEncoding: 'cp932',
     defaultHasHeader: true,
     columns: [
