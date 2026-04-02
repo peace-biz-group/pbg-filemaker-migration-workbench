@@ -71,8 +71,19 @@ const inputFileSchema = z.object({
   sourceKey: z.string().optional(),
   /** Optional: per-file ingest options. */
   ingestOptions: ingestOptionsSchema.partial().optional(),
+  /** Optional: source mode for merge stage. Defaults to archive. */
+  mode: z.enum(['mainline', 'archive']).optional(),
 });
 
+
+
+const diffKeyRuleSchema = z.object({
+  recordIdField: z.string().optional(),
+  updatedAtField: z.string().optional(),
+  naturalKeyFields: z.array(z.string()).optional(),
+  fingerprintFields: z.array(z.string()).optional(),
+  mode: z.enum(['mainline', 'archive']).optional(),
+});
 export const workbenchConfigSchema = z.object({
   /** Display name for this configuration. */
   name: z.string().default('default'),
@@ -126,6 +137,9 @@ export const workbenchConfigSchema = z.object({
     minFieldsForClassification: 2,
     priorityOrder: ['customer', 'deal', 'activity', 'transaction'],
   }),
+
+  /** Diff-key strategy per file pattern for idempotent mainline merge. */
+  diffKeys: z.record(z.string(), diffKeyRuleSchema).default({}),
 
   /** Processing chunk size (records per chunk). */
   chunkSize: z.number().min(100).max(100000).default(5000),

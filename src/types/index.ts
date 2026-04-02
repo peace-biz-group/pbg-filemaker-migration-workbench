@@ -75,6 +75,13 @@ export interface ReportSummary {
   duplicateGroupCount: number;
   classificationBreakdown: Record<CandidateType, number>;
   parseFailCount?: number;
+  insertedCount?: number;
+  updatedCount?: number;
+  unchangedCount?: number;
+  duplicateCount?: number;
+  skippedArchiveCount?: number;
+  sourceBatchCount?: number;
+  modes?: string[];
 }
 
 // ============================================================

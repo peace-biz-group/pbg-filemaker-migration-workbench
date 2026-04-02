@@ -79,7 +79,7 @@ npx tsx src/cli/index.ts classify <file> [--config workbench.config.json]
 npx tsx src/cli/index.ts run-all <file> [--config workbench.config.json]
 ```
 
-出力: 上記すべてのファイル
+出力: 上記すべてのファイル + `source-batches.json`, `import-run.json`, `merge-summary.json`
 
 ### run-batch — 複数ファイルの横断一括実行
 
@@ -91,7 +91,7 @@ npx tsx src/cli/index.ts run-batch file1.csv file2.csv --config workbench.config
 npx tsx src/cli/index.ts run-batch --config workbench.config.json
 ```
 
-出力: 全ファイルをマージした `normalized.csv`, `duplicates.csv`（クロスファイル重複含む）, `classified.csv`, レポート
+出力: 全ファイルをマージした `normalized.csv`, `duplicates.csv`（クロスファイル重複含む）, `classified.csv`, レポート + `source-batches.json`, `import-run.json`, `merge-summary.json`
 
 ## 設定ファイル
 
@@ -105,14 +105,22 @@ cp workbench.config.sample.json workbench.config.json
 
 | セクション | 説明 |
 |---|---|
-| `inputs` | バッチ実行時の入力ファイルリスト（path, label） |
+| `inputs` | バッチ実行時の入力ファイルリスト（path, label, mode） |
 | `columnMappings` | ファイル名パターン → カラムリネームマッピング |
 | `canonicalFields` | キーフィールド候補名のリスト（電話, メール, 氏名, 会社名, 住所） |
 | `normalization` | 正規化ルールの ON/OFF（会社名・住所・店舗名の正規化を含む） |
 | `duplicateDetection` | 重複検出キーの ON/OFF + 正規化キー使用フラグ |
 | `classification` | 分類判定に使うフィールドリスト + 優先順序 |
+| `diffKeys` | ファイル名パターンごとの差分キー戦略（recordIdField, updatedAtField, naturalKeyFields, fingerprintFields, mode） |
 | `chunkSize` | チャンク処理サイズ（デフォルト 5000） |
 | `outputDir` | 出力ディレクトリ |
+
+### mainline / archive と再投入の挙動（最小仕様）
+
+- `inputs[].mode` または `diffKeys[*].mode` で `mainline` / `archive` を指定できます（未指定は `archive`）。
+- `archive` は profile / normalize / review 出力は行いますが、mainline merge ledger には反映しません。
+- `run-all` / `run-batch` では `merge-summary.json` に `inserted / updated / unchanged / duplicate / skipped_archive` が出ます。
+- ローカル永続状態は `output/.state/workbench-state.json` に保存され、`source_batch` / `import_run` / merge ledger を再起動後も参照できます。
 
 ### カラムマッピングの仕組み
 

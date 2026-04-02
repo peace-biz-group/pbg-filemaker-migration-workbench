@@ -3,7 +3,7 @@
  * Manages run directories and metadata.
  */
 
-import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { join, resolve, basename } from 'node:path';
 import { profileFile } from './profiler.js';
@@ -19,6 +19,20 @@ import { generateMappingSuggestions } from './column-mapper.js';
 import type { WorkbenchConfig } from '../config/schema.js';
 import type { ReportSummary, ProfileResult, CandidateType, IngestDiagnosis } from '../types/index.js';
 import { buildRunDiffSummaryV1, saveRunDiffSummary } from './run-diff-summary.js';
+import { globMatch } from './column-mapper.js';
+import {
+  computeConfigHash,
+  defaultStatePath,
+  finishImportRun,
+  readState,
+  resolveSourceBatch,
+  startImportRun,
+  writeState,
+  type SourceBatchRecord,
+  type SourceMode,
+  type MergeSummary,
+} from './import-state.js';
+import { mergeMainlineRows } from './mainline-merge.js';
 
 export type RunMode = 'profile' | 'normalize' | 'detect-duplicates' | 'classify' | 'run-all' | 'run-batch';
 
@@ -58,6 +72,10 @@ export interface RunMeta {
   schemaDriftWarningShown?: boolean;
   /** schema drift warning を見た上で明示的に override して進んだ場合 true */
   schemaDriftOverride?: boolean;
+  statePath?: string;
+  sourceBatches?: SourceBatchRecord[];
+  sourceModes?: Record<string, SourceMode>;
+  importRunId?: string;
 }
 
 function generateRunId(): string {
@@ -169,6 +187,17 @@ function resolveFileIngestOptions(filePath: string, config: WorkbenchConfig): Re
   return { ...global, ...perFile };
 }
 
+function resolveSourceMode(filePath: string, config: WorkbenchConfig): SourceMode {
+  const full = resolve(filePath);
+  const fileName = basename(filePath);
+  const fromInput = config.inputs.find(i => resolve(i.path) === full)?.mode;
+  if (fromInput) return fromInput;
+  for (const [pattern, rule] of Object.entries(config.diffKeys ?? {})) {
+    if (globMatch(pattern, fileName) && rule.mode) return rule.mode;
+  }
+  return 'archive';
+}
+
 /**
  * Execute a pipeline run. Returns the run metadata.
  * If async mode is requested, returns immediately with 'running' status
@@ -207,6 +236,9 @@ export async function executeRun(
     ...(options?.schemaDriftOverride ? { schemaDriftOverride: true } : {}),
   };
   saveMeta(meta);
+  const statePath = defaultStatePath(config.outputDir);
+  meta.statePath = statePath;
+  meta.importRunId = runId;
 
   const doExecute = async () => {
     const runConfig = { ...config, outputDir: runDir };
@@ -226,16 +258,19 @@ export async function executeRun(
       const schemaFingerprints: Record<string, string> = {};
       const ingestDiagnoses: Record<string, IngestDiagnosis> = {};
       const inputColumns: Record<string, string[]> = {};
+      const sourceModes: Record<string, SourceMode> = {};
 
       for (const f of inputFiles) {
+        const abs = resolve(f);
+        sourceModes[abs] = resolveSourceMode(f, config);
         const ir = await ingestFile(f, resolveFileIngestOptions(f, config), 1);
         // consume one chunk to trigger diagnosis
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         for await (const _chunk of ir.records) { break; }
-        sourceFileHashes[f] = ir.sourceFileHash;
-        schemaFingerprints[f] = ir.schemaFingerprint;
-        ingestDiagnoses[f] = ir.diagnosis;
-        inputColumns[f] = ir.columns;
+        sourceFileHashes[abs] = ir.sourceFileHash;
+        schemaFingerprints[abs] = ir.schemaFingerprint;
+        ingestDiagnoses[abs] = ir.diagnosis;
+        inputColumns[abs] = ir.columns;
         // drift context 用: 最初のファイルの列名を保存
         if (!meta.columnNames && ir.columns.length > 0) {
           meta.columnNames = ir.columns;
@@ -270,8 +305,40 @@ export async function executeRun(
       meta.ingestDiagnoses = ingestDiagnoses;
       meta.inputColumns = inputColumns;
       meta.previousRunId = prevRunId;
+      meta.sourceModes = sourceModes;
       if (options?.profileId) meta.profileId = options.profileId;
       saveMeta(meta);
+
+      const state = readState(statePath);
+      const configHash = computeConfigHash(config);
+      const importedAt = new Date().toISOString();
+      const sourceBatches = inputFiles.map((f) => {
+        const abs = resolve(f);
+        const entry = config.inputs.find(i => resolve(i.path) === resolve(f));
+        const stats = statSync(f);
+        return resolveSourceBatch(state, {
+          filePath: f,
+          fileLabel: entry?.label,
+          fileSize: stats.size,
+          sha256: sourceFileHashes[abs] ?? '',
+          mode: sourceModes[abs] ?? 'archive',
+          configHash,
+          sourceType: 'filemaker_export',
+          importedAt,
+        });
+      });
+      meta.sourceBatches = sourceBatches;
+      saveMeta(meta);
+      const sourceBatchIds = sourceBatches.map(b => b.source_batch_id);
+      startImportRun(state, {
+        runId,
+        command: mode,
+        sourceBatchIds,
+        outputDir: runDir,
+        startedAt: meta.startedAt,
+      });
+      writeState(statePath, state);
+      writeFileSync(join(runDir, 'source-batches.json'), JSON.stringify(sourceBatches, null, 2), 'utf-8');
 
       // Build contexts
       const effectiveMapping = options?.effectiveMapping;
@@ -307,6 +374,24 @@ export async function executeRun(
       meta.status = 'completed';
       meta.completedAt = new Date().toISOString();
       saveMeta(meta);
+      const persisted = readState(statePath);
+      const mergeSummary: MergeSummary = {
+        inserted: meta.summary?.insertedCount ?? 0,
+        updated: meta.summary?.updatedCount ?? 0,
+        unchanged: meta.summary?.unchangedCount ?? 0,
+        duplicate: meta.summary?.duplicateCount ?? 0,
+        skipped_archive: meta.summary?.skippedArchiveCount ?? 0,
+        warnings: [],
+      };
+      const importRun = finishImportRun(persisted, runId, {
+        finishedAt: meta.completedAt,
+        status: 'completed',
+        summary: mergeSummary,
+      });
+      writeState(statePath, persisted);
+      if (importRun) {
+        writeFileSync(join(runDir, 'import-run.json'), JSON.stringify(importRun, null, 2), 'utf-8');
+      }
 
       // Write ingest-diagnoses.json
       writeFileSync(
@@ -341,6 +426,24 @@ export async function executeRun(
       meta.completedAt = new Date().toISOString();
       meta.error = err instanceof Error ? err.message : String(err);
       saveMeta(meta);
+      const persisted = readState(statePath);
+      const importRun = finishImportRun(persisted, runId, {
+        finishedAt: meta.completedAt,
+        status: 'failed',
+        summary: {
+          inserted: meta.summary?.insertedCount ?? 0,
+          updated: meta.summary?.updatedCount ?? 0,
+          unchanged: meta.summary?.unchangedCount ?? 0,
+          duplicate: meta.summary?.duplicateCount ?? 0,
+          skipped_archive: meta.summary?.skippedArchiveCount ?? 0,
+          warnings: [],
+        },
+        errorMessage: meta.error,
+      });
+      writeState(statePath, persisted);
+      if (importRun) {
+        writeFileSync(join(runDir, 'import-run.json'), JSON.stringify(importRun, null, 2), 'utf-8');
+      }
       emitter.emit('error', meta);
     } finally {
       setTimeout(() => activeEmitters.delete(runId), 5000);
@@ -411,6 +514,7 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
   await writeAnomalies(profile, config);
   emitProgress(runId, 'normalize', '正規化実行中...', 25);
   const normResult = await normalizeFile(file, config, context);
+  const mergeSummary = await applyMainlineMerge(config, meta, runId, normResult.normalizedPath);
   emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 50);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
   emitProgress(runId, 'classify', '分類実行中...', 75);
@@ -426,6 +530,13 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
     parseFailCount: normResult.parseFailCount,
     duplicateGroupCount: dupResult.groups.length,
     classificationBreakdown: classResult.breakdown,
+    insertedCount: mergeSummary.inserted,
+    updatedCount: mergeSummary.updated,
+    unchangedCount: mergeSummary.unchanged,
+    duplicateCount: mergeSummary.duplicate,
+    skippedArchiveCount: mergeSummary.skipped_archive,
+    sourceBatchCount: meta.sourceBatches?.length ?? 0,
+    modes: Array.from(new Set(Object.values(meta.sourceModes ?? {}))),
   };
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profile);
@@ -465,6 +576,7 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
     config,
     contexts,
   );
+  const mergeSummary = await applyMainlineMerge(config, meta, runId, normResult.normalizedPath);
   emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 55);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
   emitProgress(runId, 'classify', '分類実行中...', 80);
@@ -480,10 +592,48 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
     parseFailCount: normResult.parseFailCount,
     duplicateGroupCount: dupResult.groups.length,
     classificationBreakdown: classResult.breakdown,
+    insertedCount: mergeSummary.inserted,
+    updatedCount: mergeSummary.updated,
+    unchangedCount: mergeSummary.unchanged,
+    duplicateCount: mergeSummary.duplicate,
+    skippedArchiveCount: mergeSummary.skipped_archive,
+    sourceBatchCount: meta.sourceBatches?.length ?? 0,
+    modes: Array.from(new Set(Object.values(meta.sourceModes ?? {}))),
   };
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profiles[0]);
   emitProgress(runId, 'complete', '完了', 100);
+}
+
+async function applyMainlineMerge(
+  config: WorkbenchConfig,
+  meta: RunMeta,
+  runId: string,
+  normalizedPath: string,
+): Promise<MergeSummary> {
+  const statePath = meta.statePath ?? defaultStatePath(config.outputDir);
+  const state = readState(statePath);
+  const sourceBatchBySourceKey: Record<string, string> = {};
+  const modeBySourceKey: Record<string, SourceMode> = {};
+  for (const filePath of meta.inputFiles) {
+    const entry = config.inputs.find(i => resolve(i.path) === resolve(filePath));
+    const sourceKey = entry?.sourceKey ?? basename(filePath);
+    const mode = meta.sourceModes?.[filePath] ?? 'archive';
+    modeBySourceKey[sourceKey] = mode;
+    const batch = meta.sourceBatches?.find(b => resolve(b.file_path) === resolve(filePath));
+    if (batch) sourceBatchBySourceKey[sourceKey] = batch.source_batch_id;
+  }
+  const summary = await mergeMainlineRows({
+    normalizedPath,
+    sourceBatchBySourceKey,
+    modeBySourceKey,
+    importRunId: runId,
+    config,
+    ledger: state.merge_ledger,
+  });
+  writeState(statePath, state);
+  writeFileSync(join(meta.outputDir, 'merge-summary.json'), JSON.stringify(summary, null, 2), 'utf-8');
+  return summary;
 }
 
 async function writeAnomalies(profile: ProfileResult, config: WorkbenchConfig): Promise<void> {

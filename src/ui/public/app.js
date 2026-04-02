@@ -102,10 +102,12 @@ async function renderDashboard() {
           : '<span class="badge badge-warning">実行中</span>';
       const time = new Date(run.startedAt).toLocaleString('ja-JP');
       const files = run.inputFiles.map(f => f.split('/').pop()).join(', ');
+      const modes = Array.isArray(run.summary?.modes) ? run.summary.modes.join('/') : 'archive';
       html += `
         <a href="/runs/${run.id}" class="run-item">
           <span class="run-mode">${run.mode}</span>
           ${status}
+          <span class="run-files">mode: ${escapeHtml(modes)}</span>
           <span class="run-files" title="${run.inputFiles.join(', ')}">${files}</span>
           <span class="run-time">${time}</span>
         </a>
@@ -782,6 +784,7 @@ async function renderRunDetail(runId) {
           実行日時: ${new Date(run.startedAt).toLocaleString('ja-JP')}
           ${run.completedAt ? ` — 完了: ${new Date(run.completedAt).toLocaleString('ja-JP')}` : ''}
           <br>対象ファイル: ${escapeHtml(inputFiles)}
+          <br>source batch数: ${(summary.sourceBatchCount || 0).toLocaleString()} / mode: ${escapeHtml((summary.modes || []).join(', ') || 'archive')}
         </p>
         <div class="stats">
           <div class="stat"><div class="label">レコード数</div><div class="value">${(summary.recordCount || 0).toLocaleString()}</div></div>
@@ -790,6 +793,11 @@ async function renderRunDetail(runId) {
           <div class="stat"><div class="label">別に分けたもの</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">読み取りエラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">同じかも</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline追加</div><div class="value">${(summary.insertedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline更新</div><div class="value">${(summary.updatedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline変更なし</div><div class="value">${(summary.unchangedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline重複</div><div class="value">${(summary.duplicateCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">archiveスキップ</div><div class="value">${(summary.skippedArchiveCount || 0).toLocaleString()}</div></div>
         </div>
         ${run.ingestDiagnoses && Object.keys(run.ingestDiagnoses).length > 0 ? `
           <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
