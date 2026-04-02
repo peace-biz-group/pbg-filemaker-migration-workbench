@@ -5,6 +5,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import { readWorkbookFromFile } from './xlsx-workbook.js';
 import type { RawRecord, ChunkProcessor } from '../types/index.js';
 
 export interface XlsxReaderOptions {
@@ -21,7 +22,7 @@ export async function readXlsxInChunks<T>(
   options: XlsxReaderOptions,
   processor: ChunkProcessor<T>,
 ): Promise<T[]> {
-  const workbook = XLSX.readFile(filePath, { type: 'file' });
+  const workbook = readWorkbookFromFile(filePath);
   const sheetName = options.sheetName ?? workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) {
@@ -44,7 +45,7 @@ export async function readXlsxInChunks<T>(
 
 /** Get column names from the first row of an XLSX sheet. */
 export function readXlsxColumns(filePath: string, sheetName?: string): string[] {
-  const workbook = XLSX.readFile(filePath, { type: 'file' });
+  const workbook = readWorkbookFromFile(filePath);
   const name = sheetName ?? workbook.SheetNames[0];
   const sheet = workbook.Sheets[name];
   if (!sheet) return [];

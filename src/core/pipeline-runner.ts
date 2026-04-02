@@ -17,7 +17,7 @@ import { ingestFile } from '../io/file-reader.js';
 import { sourceBatchId, logicalSourceKey } from '../ingest/fingerprint.js';
 import { generateMappingSuggestions } from './column-mapper.js';
 import type { WorkbenchConfig } from '../config/schema.js';
-import type { ReportSummary, ProfileResult, CandidateType, IngestDiagnosis, RunDiff, RunDiffBySource } from '../types/index.js';
+import type { ReportSummary, ProfileResult, CandidateType, IngestDiagnosis } from '../types/index.js';
 import { buildRunDiffSummaryV1, saveRunDiffSummary } from './run-diff-summary.js';
 
 export type RunMode = 'profile' | 'normalize' | 'detect-duplicates' | 'classify' | 'run-all' | 'run-batch';
@@ -41,7 +41,15 @@ export interface RunMeta {
   ingestDiagnoses?: Record<string, IngestDiagnosis>;
   /** 最初の入力ファイルの列名一覧（drift context 用） */
   columnNames?: string[];
+  /** 入力ファイルごとの列名一覧（run diff / drift 用） */
+  inputColumns?: Record<string, string[]>;
   previousRunId?: string;
+  /** 実効 mapping と関連づく profileId */
+  profileId?: string;
+  /** fast-path 実行情報 */
+  usedFastPath?: boolean;
+  fastPathProfileId?: string;
+  skippedColumnReview?: boolean;
   /** confirm 段階で duplicate warning が表示された場合 true */
   duplicateWarningShown?: boolean;
   /** duplicate warning を見た上で明示的に override して実行した場合 true */
@@ -161,34 +169,6 @@ function resolveFileIngestOptions(filePath: string, config: WorkbenchConfig): Re
   return { ...global, ...perFile };
 }
 
-function buildRunDiff(prev: RunMeta, curr: RunMeta, sources: { sourceKey: string; filePath: string }[]): RunDiff {
-  const bySource: RunDiffBySource[] = sources.map(({ sourceKey, filePath }) => ({
-    sourceKey,
-    recordCountDelta: 0,
-    normalizedCountDelta: 0,
-    quarantineCountDelta: 0,
-    parseFailDelta: 0,
-    schemaChanged: (prev.schemaFingerprints?.[filePath] ?? '') !== (curr.schemaFingerprints?.[filePath] ?? ''),
-    schemaFingerprintPrev: prev.schemaFingerprints?.[filePath],
-    schemaFingerprintCurr: curr.schemaFingerprints?.[filePath],
-  }));
-
-  const prevS = prev.summary!;
-  const currS = curr.summary!;
-  return {
-    previousRunId: prev.id,
-    currentRunId: curr.id,
-    logicalSourceKey: curr.logicalSourceKey ?? '',
-    bySource,
-    totals: {
-      recordCountDelta: (currS.recordCount ?? 0) - (prevS.recordCount ?? 0),
-      normalizedCountDelta: (currS.normalizedCount ?? 0) - (prevS.normalizedCount ?? 0),
-      quarantineCountDelta: (currS.quarantineCount ?? 0) - (prevS.quarantineCount ?? 0),
-      parseFailDelta: (currS.parseFailCount ?? 0) - (prevS.parseFailCount ?? 0),
-    },
-  };
-}
-
 /**
  * Execute a pipeline run. Returns the run metadata.
  * If async mode is requested, returns immediately with 'running' status
@@ -201,6 +181,8 @@ export async function executeRun(
   configPath?: string,
   options?: {
     async?: boolean;
+    effectiveMapping?: Record<string, string>;
+    profileId?: string;
     duplicateWarningShown?: boolean;
     duplicateOverride?: boolean;
     schemaDriftWarningShown?: boolean;

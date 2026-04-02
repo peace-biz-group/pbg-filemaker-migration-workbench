@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { readWorkbookFromFile } from '../io/xlsx-workbook.js';
 import type { RawRecord, IngestResult, XlsxIngestDiagnosis } from '../types/index.js';
 import type { IngestOptions } from './ingest-options.js';
 import { fileHash, schemaFingerprint, rowFingerprint } from './fingerprint.js';
@@ -12,7 +13,7 @@ export async function ingestXlsx(
   const hasHeader = options.hasHeader !== false;
   const skipRows = options.skipRows ?? 0;
 
-  const wb = XLSX.readFile(filePath);
+  const wb = readWorkbookFromFile(filePath);
   const sheetName = wb.SheetNames[0] ?? '';
   const sheet = wb.Sheets[sheetName];
   if (!sheet) throw new Error(`No sheet found in ${filePath}`);
