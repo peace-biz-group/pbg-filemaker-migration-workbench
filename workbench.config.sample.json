@@ -1,8 +1,9 @@
 {
   "name": "sample-project",
   "inputs": [
-    { "path": "./data/apo_list_2024.csv", "label": "アポリスト2024" },
-    { "path": "./data/product_a_customers.csv", "label": "商材A顧客管理" }
+    { "path": "./data/apo_list_2024.csv", "label": "アポリスト2024", "mode": "mainline" },
+    { "path": "./data/product_a_customers.csv", "label": "商材A顧客管理", "mode": "mainline" },
+    { "path": "./data/legacy_export_2021.csv", "label": "旧CSVアーカイブ", "mode": "archive" }
   ],
   "columnMappings": {
     "apo_list_*.csv": {
@@ -66,6 +67,43 @@
     "activityFields": ["activity_date", "activity_type", "note"],
     "minFieldsForClassification": 2,
     "priorityOrder": ["customer", "deal", "activity", "transaction"]
+  },
+  "diffKeys": {
+    "apo_list_*.csv": {
+      "recordIdField": "fm_record_id",
+      "updatedAtField": "updated_at",
+      "naturalKeyFields": ["customer_name", "phone", "activity_date"],
+      "fingerprintFields": ["customer_name", "phone", "activity_date", "activity_type", "note"],
+      "mode": "mainline"
+    },
+    "customer-management*.csv": {
+      "recordIdField": "fm_record_id",
+      "updatedAtField": "updated_at",
+      "naturalKeyFields": ["customer_name", "company_name", "phone"],
+      "fingerprintFields": ["customer_name", "company_name", "phone", "email", "address"],
+      "mode": "mainline"
+    },
+    "call-history*.csv": {
+      "recordIdField": "fm_record_id",
+      "updatedAtField": "updated_at",
+      "naturalKeyFields": ["customer_name", "activity_date", "activity_type"],
+      "fingerprintFields": ["customer_name", "activity_date", "activity_type", "note"],
+      "mode": "mainline"
+    },
+    "visit-history*.csv": {
+      "recordIdField": "fm_record_id",
+      "updatedAtField": "updated_at",
+      "naturalKeyFields": ["customer_name", "activity_date", "staff"],
+      "fingerprintFields": ["customer_name", "activity_date", "staff", "note"],
+      "mode": "mainline"
+    },
+    "followup-history*.csv": {
+      "recordIdField": "fm_record_id",
+      "updatedAtField": "updated_at",
+      "naturalKeyFields": ["customer_name", "activity_date", "product"],
+      "fingerprintFields": ["customer_name", "activity_date", "product", "note"],
+      "mode": "mainline"
+    }
   },
   "chunkSize": 5000,
   "outputDir": "./output"
