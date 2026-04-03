@@ -20,6 +20,7 @@
     "classify": "tsx src/cli/index.ts classify",
     "run-all": "tsx src/cli/index.ts run-all",
     "run-batch": "tsx src/cli/index.ts run-batch",
+    "dry-run:4": "tsx scripts/dry-run-4.ts",
     "ui": "tsx src/ui/server.ts",
     "ui:dev": "tsx watch src/ui/server.ts",
     "ui:lan": "cross-env HOST=0.0.0.0 PORT=3456 tsx src/ui/server.ts"

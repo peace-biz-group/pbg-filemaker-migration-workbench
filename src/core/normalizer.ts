@@ -15,6 +15,7 @@ import { findBestMapping, applyColumnMapping, mapColumnNames } from './column-ma
 import { join } from 'node:path';
 import { ensureOutputDir } from '../io/report-writer.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
+import { buildRecordIdentity } from './record-identity.js';
 
 function matchesAny(colName: string, patterns: string[]): boolean {
   const lower = colName.toLowerCase();
@@ -109,6 +110,7 @@ export interface NormalizeContext {
    * undefined = 未指定（config の findBestMapping にフォールバック）。
    */
   effectiveMapping?: Record<string, string> | null;
+  sourceMode?: 'mainline' | 'archive';
 }
 
 export interface NormalizeResult {
@@ -164,8 +166,8 @@ export async function normalizeFile(
       if (!mappedColumns) {
         const cols = Object.keys(record).filter(k => !k.startsWith('_'));
         mappedColumns = mapping
-          ? ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', ...mapColumnNames(cols, mapping)]
-          : ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', ...cols];
+          ? ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', ...mapColumnNames(cols, mapping)]
+          : ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', ...cols];
       }
 
       const mapped = mapping ? applyColumnMapping(record, mapping) : record;
@@ -178,6 +180,16 @@ export async function normalizeFile(
       norm['_import_run_id'] = context.importRunId;
       norm['_schema_fingerprint'] = ingestResult.schemaFingerprint;
       // _row_fingerprint already in record from ingest layer
+      const identity = buildRecordIdentity(norm, { sourceFile: filePath, mode: context.sourceMode ?? 'archive' }, config);
+      norm['_source_record_key'] = identity.sourceRecordKey;
+      norm['_source_record_key_method'] = identity.sourceRecordKeyMethod;
+      norm['_entity_match_key'] = identity.entityMatchKey;
+      norm['_structural_fingerprint'] = identity.structuralFingerprint;
+      norm['_structural_fingerprint_full'] = identity.structuralFingerprintFull;
+      norm['_structural_fingerprint_mainline'] = identity.structuralFingerprintMainline;
+      norm['_merge_eligibility'] = identity.mergeEligibility;
+      norm['_review_reason'] = identity.reviewReason ?? '';
+      norm['_semantic_owner'] = identity.semanticOwner ?? '';
 
       const reason = businessQuarantineReason(norm, config);
       if (reason) {
@@ -271,7 +283,7 @@ export async function normalizeFiles(
         mapped._source_file = sourceLabel;
 
         if (!outputColumns) {
-          outputColumns = ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', ...Object.keys(mapped).filter((k) => k !== '_source_file' && !k.startsWith('_'))];
+          outputColumns = ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', ...Object.keys(mapped).filter((k) => k !== '_source_file' && !k.startsWith('_'))];
         }
 
         const norm = normalizeRecord(mapped, config);
@@ -282,6 +294,16 @@ export async function normalizeFiles(
         norm['_source_batch_id'] = context.sourceBatchId;
         norm['_import_run_id'] = context.importRunId;
         norm['_schema_fingerprint'] = ingestResult.schemaFingerprint;
+        const identity = buildRecordIdentity(norm, { sourceFile: filePath, mode: context.sourceMode ?? 'archive' }, config);
+        norm['_source_record_key'] = identity.sourceRecordKey;
+        norm['_source_record_key_method'] = identity.sourceRecordKeyMethod;
+        norm['_entity_match_key'] = identity.entityMatchKey;
+        norm['_structural_fingerprint'] = identity.structuralFingerprint;
+        norm['_structural_fingerprint_full'] = identity.structuralFingerprintFull;
+        norm['_structural_fingerprint_mainline'] = identity.structuralFingerprintMainline;
+        norm['_merge_eligibility'] = identity.mergeEligibility;
+        norm['_review_reason'] = identity.reviewReason ?? '';
+        norm['_semantic_owner'] = identity.semanticOwner ?? '';
 
         const reason = businessQuarantineReason(norm, config);
         if (reason) {
