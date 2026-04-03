@@ -452,26 +452,23 @@ tr:hover td { background: #f0f4ff; }
 }
 
 .choice-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(98px, 1fr));
   gap: 6px;
-  flex-wrap: wrap;
   font-size: 13px;
 }
 
 .choice-row label,
 .choice-chip {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 86px;
+  width: 100%;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
-}
-.choice-chip-wide {
-  min-width: 120px;
 }
 .choice-chip input[type="radio"] {
   margin: 0;

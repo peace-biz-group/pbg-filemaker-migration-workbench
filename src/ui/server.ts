@@ -43,7 +43,9 @@ function decodeUploadedFilename(name: string): string {
   try {
     // multer/busboy may decode UTF-8 filename as latin1.
     // Re-decode only when the source string looks like mojibake.
-    const looksMojibake = /[ÃÂ¢¤¦¨±¼½¾]/.test(name);
+    const hasJapanese = /[\u3040-\u30FF\u4E00-\u9FFF]/.test(name);
+    const latin1NoiseChars = (name.match(/[\u00C0-\u00FF]/g) || []).length;
+    const looksMojibake = !hasJapanese && (/[ÃÂ¢¤¦¨±¼½¾]/.test(name) || latin1NoiseChars >= 2);
     if (!looksMojibake) return name;
     const decoded = Buffer.from(name, 'latin1').toString('utf8').normalize('NFC');
     if (!decoded || decoded.includes('\uFFFD')) return name;

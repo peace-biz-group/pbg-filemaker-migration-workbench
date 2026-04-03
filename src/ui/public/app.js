@@ -743,6 +743,7 @@ function inferMeaningFromColumnName(name = '') {
   const rules = [
     { re: /(日付|date|年月日|ymd|着工日|申込日|受付日|契約日|作成日|登録日|更新日|完了日|訪問日|架電日|対応日|予定日|到着日|満了日|満期日|失効日|開始日|終了日|締日|締め日|支払日|入金日|請求日|検針日|工事日|発生日|実施日|確認日|提出日|配信日|連絡日|計上日|承認日|解約日|利用日|納品日|受注日|期限|期日|日$)/i, v: '日付' },
     { re: /(時刻|時間|time|timestamp|datetime)/i, v: '日時' },
+    { re: /(料金|金額|金額帯|単価|price|amount|cost|売上|請求額|入金額)/i, v: '金額' },
     { re: /(会社|法人|企業|メーカー)/i, v: '会社名' },
     { re: /(担当者|担当|contact|person)/i, v: '担当者名' },
     { re: /(電話|tel|phone|携帯)/i, v: '電話番号' },
@@ -2113,7 +2114,7 @@ async function renderColumnReview(runId) {
             <div class="choice-row">
               <label class="choice-chip"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="yes" ${entry.inUse === 'yes' ? 'checked' : ''}> はい</label>
               <label class="choice-chip"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> いいえ</label>
-              <label class="choice-chip choice-chip-wide"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="unknown" ${entry.inUse === 'unknown' ? 'checked' : ''}> まだ分からない</label>
+              <label class="choice-chip choice-chip-wide"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="unknown" ${entry.inUse === 'unknown' ? 'checked' : ''}> わからない</label>
             </div>
           </div>
           <div class="column-review-field">
@@ -2121,7 +2122,7 @@ async function renderColumnReview(runId) {
             <div class="choice-row">
               <label class="choice-chip"><input type="radio" name="required-${entry.position}" class="col-required" value="yes" ${entry.required === 'yes' ? 'checked' : ''}> はい</label>
               <label class="choice-chip"><input type="radio" name="required-${entry.position}" class="col-required" value="no" ${entry.required === 'no' ? 'checked' : ''}> いいえ</label>
-              <label class="choice-chip choice-chip-wide"><input type="radio" name="required-${entry.position}" class="col-required" value="unknown" ${entry.required === 'unknown' ? 'checked' : ''}> まだ分からない</label>
+              <label class="choice-chip choice-chip-wide"><input type="radio" name="required-${entry.position}" class="col-required" value="unknown" ${entry.required === 'unknown' ? 'checked' : ''}> わからない</label>
             </div>
           </div>
           <div class="column-review-field">
@@ -2209,11 +2210,11 @@ function showColumnReviewSummary(runId, profileId, summary) {
       </div>
       ${activeCount > 0 ? `
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn btn-primary" id="btn-normalize-with-review">この回答を使って正規化を実行</button>
+          <button class="btn btn-primary" id="btn-normalize-with-review">次に進む</button>
           <a href="/runs/${escapeHtml(runId)}" class="btn">結果を見る</a>
         </div>
         <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">
-          「使う列」${activeCount}件の名前を整えて、正規化ファイルを作成します。
+          「使う列」${activeCount}件で、次の画面へ進みます。
         </p>
       ` : `
         <div style="display:flex;gap:8px">
@@ -2237,7 +2238,7 @@ function showColumnReviewSummary(runId, profileId, summary) {
     } catch (err) {
       alert('実行に失敗しました: ' + err.message);
       btn.disabled = false;
-      btn.textContent = 'この回答を使って正規化を実行';
+      btn.textContent = '次に進む';
     }
   });
 }
