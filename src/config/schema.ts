@@ -71,8 +71,28 @@ const inputFileSchema = z.object({
   sourceKey: z.string().optional(),
   /** Optional: per-file ingest options. */
   ingestOptions: ingestOptionsSchema.partial().optional(),
+  /** Optional: source mode for merge stage. Defaults to archive. */
+  mode: z.enum(['mainline', 'archive']).optional(),
 });
 
+
+
+const diffKeyRuleSchema = z.object({
+  recordIdField: z.string().optional(),
+  updatedAtField: z.string().optional(),
+  naturalKeyFields: z.array(z.string()).optional(),
+  fingerprintFields: z.array(z.string()).optional(),
+  mode: z.enum(['mainline', 'archive']).optional(),
+});
+
+const identityStrategySchema = z.object({
+  recordFamily: z.enum(['apo_list', 'customer_master_like', 'deal_like', 'call_activity', 'visit_activity', 'retry_followup']).optional(),
+  nativeIdField: z.string().optional(),
+  deterministicFields: z.array(z.string()).optional(),
+  entityMatchFields: z.array(z.string()).optional(),
+  fingerprintFields: z.array(z.string()).optional(),
+  mainlineFingerprintFields: z.array(z.string()).optional(),
+});
 export const workbenchConfigSchema = z.object({
   /** Display name for this configuration. */
   name: z.string().default('default'),
@@ -125,6 +145,30 @@ export const workbenchConfigSchema = z.object({
     activityFields: ['activity_date', 'activity_type', 'note', 'follow_up'],
     minFieldsForClassification: 2,
     priorityOrder: ['customer', 'deal', 'activity', 'transaction'],
+  }),
+
+  /** Diff-key strategy per file pattern for idempotent mainline merge. */
+  diffKeys: z.record(z.string(), diffKeyRuleSchema).default({}),
+
+  /** Semantic identity strategy per file pattern. */
+  identityStrategies: z.record(z.string(), identityStrategySchema).default({}),
+
+  /** Semantic owner rules (minimal v1 placeholder for future extension). */
+  semanticOwnerRules: z.object({
+    enforceCustomerFamilyOwner: z.boolean().default(true),
+  }).default({
+    enforceCustomerFamilyOwner: true,
+  }),
+
+  /** Mainline merge eligibility rules. */
+  mainlineEligibilityRules: z.object({
+    disallowFallback: z.boolean().default(true),
+    disallowCustomerOwnerUnknown: z.boolean().default(true),
+    disallowCustomerOwnerHybrid: z.boolean().default(true),
+  }).default({
+    disallowFallback: true,
+    disallowCustomerOwnerUnknown: true,
+    disallowCustomerOwnerHybrid: true,
   }),
 
   /** Processing chunk size (records per chunk). */

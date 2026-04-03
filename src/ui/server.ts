@@ -41,9 +41,17 @@ const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'cl
 
 function decodeUploadedFilename(name: string): string {
   try {
-    // multer/busboy may decode as latin1; re-decode to UTF-8 when possible.
-    const decoded = Buffer.from(name, 'latin1').toString('utf8');
-    if (decoded.includes('\uFFFD')) return name;
+    // multer/busboy may decode UTF-8 filename as latin1.
+    // Re-decode only when the source string looks like mojibake.
+    const hasJapanese = /[\u3040-\u30FF\u4E00-\u9FFF]/.test(name);
+    const latin1NoiseChars = (name.match(/[\u00C0-\u00FF]/g) || []).length;
+    const looksMojibake = !hasJapanese && (/[ÃÂ¢¤¦¨±¼½¾]/.test(name) || latin1NoiseChars >= 2);
+    if (!looksMojibake) return name;
+    const decoded = Buffer.from(name, 'latin1').toString('utf8').normalize('NFC');
+    if (!decoded || decoded.includes('\uFFFD')) return name;
+    // Guard: if re-encoded bytes diverge too much, keep original.
+    const roundtrip = Buffer.from(decoded, 'utf8').toString('latin1');
+    if (roundtrip.length < Math.max(1, name.length / 2)) return name;
     return decoded;
   } catch {
     return name;

@@ -47,6 +47,8 @@ export async function detectDuplicates(
   const emailIndex = new Map<string, IndexEntry[]>();
   const nameCompanyIndex = new Map<string, IndexEntry[]>();
   const nameAddressIndex = new Map<string, IndexEntry[]>();
+  const entityMatchIndex = new Map<string, IndexEntry[]>();
+  const sourceRecordIndex = new Map<string, IndexEntry[]>();
 
   let rowCounter = 0;
 
@@ -62,8 +64,17 @@ export async function detectDuplicates(
       const company = resolveField(record, config.canonicalFields.companyName);
       const store = resolveField(record, config.canonicalFields.storeName);
       const address = resolveField(record, config.canonicalFields.address);
+      const entityMatchKey = (record['_entity_match_key'] ?? '').trim();
+      const sourceRecordKey = (record['_source_record_key'] ?? '').trim();
+      const sourceRecordKeyMethod = (record['_source_record_key_method'] ?? '').trim();
 
-      entry.values = { phone, email, name, company, store, address, _source_file: sourceFile };
+      entry.values = {
+        phone, email, name, company, store, address,
+        _source_file: sourceFile,
+        _entity_match_key: entityMatchKey,
+        _source_record_key: sourceRecordKey,
+        _source_record_key_method: sourceRecordKeyMethod,
+      };
 
       // Phone index
       if (config.duplicateDetection.enablePhoneMatch && phone) {
@@ -99,6 +110,16 @@ export async function detectDuplicates(
         if (!nameAddressIndex.has(key)) nameAddressIndex.set(key, []);
         nameAddressIndex.get(key)!.push(entry);
       }
+
+      if (entityMatchKey) {
+        if (!entityMatchIndex.has(entityMatchKey)) entityMatchIndex.set(entityMatchKey, []);
+        entityMatchIndex.get(entityMatchKey)!.push(entry);
+      }
+
+      if (sourceRecordKey && sourceRecordKeyMethod !== 'fallback') {
+        if (!sourceRecordIndex.has(sourceRecordKey)) sourceRecordIndex.set(sourceRecordKey, []);
+        sourceRecordIndex.get(sourceRecordKey)!.push(entry);
+      }
     }
   });
 
@@ -131,6 +152,8 @@ export async function detectDuplicates(
   addGroups(emailIndex, 'email');
   addGroups(nameCompanyIndex, 'name_company');
   addGroups(nameAddressIndex, 'name_address');
+  addGroups(entityMatchIndex, 'entity_match');
+  addGroups(sourceRecordIndex, 'source_record');
 
   // Write to CSV
   const outputPath = join(config.outputDir, 'duplicates.csv');
