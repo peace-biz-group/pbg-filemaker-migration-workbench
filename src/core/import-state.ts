@@ -24,6 +24,7 @@ export interface MergeSummary {
   unchanged: number;
   duplicate: number;
   skipped_archive: number;
+  skipped_review?: number;
   warnings: string[];
 }
 

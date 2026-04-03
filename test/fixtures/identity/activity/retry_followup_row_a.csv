@@ -1,0 +1,3 @@
+scheduled_followup_date,retry_date,operator,retry_status,outcome,customer_name,phone,note
+2026-04-10,,opR,pending,call_back,鈴木次郎,0344445555,retry-A
+2026-04-11,,opR,done,success,高橋三郎,0355556666,retry-B

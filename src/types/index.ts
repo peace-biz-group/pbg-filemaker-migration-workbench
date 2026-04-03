@@ -38,7 +38,7 @@ export interface AnomalyRecord {
 export interface DuplicateGroup {
   groupId: number;
   matchKey: string;
-  matchType: 'phone' | 'email' | 'name_company' | 'name_address';
+  matchType: 'phone' | 'email' | 'name_company' | 'name_address' | 'entity_match' | 'source_record';
   records: { row: number; values: Record<string, string> }[];
 }
 
@@ -75,11 +75,40 @@ export interface ReportSummary {
   duplicateGroupCount: number;
   classificationBreakdown: Record<CandidateType, number>;
   parseFailCount?: number;
+  totalRecordCount?: number;
+  mainlineReadyCount?: number;
+  reviewCount?: number;
+  archiveOnlyCount?: number;
+  reviewReasonBreakdown?: Record<string, number>;
+  mergeEligibilityBreakdown?: Record<'mainline_ready' | 'review' | 'archive_only', number>;
+  semanticOwnerBreakdown?: Record<string, number>;
+  sourceRecordKeyMethodBreakdown?: Record<string, number>;
+  recordFamilyBreakdown?: Record<string, number>;
+  reviewSourceRecordKeyMethodBreakdown?: Record<string, number>;
+  reviewRecordFamilyBreakdown?: Record<string, number>;
+  reviewSemanticOwnerBreakdown?: Record<string, number>;
+  topReviewReasons?: Array<{ reason: string; count: number }>;
+  topWarningIndicators?: Array<{ indicator: string; count: number }>;
+  reviewSampleSummary?: {
+    sampleCap: number;
+    reasons: Record<string, number>;
+    totalSampledRows: number;
+    artifactFile: string;
+  };
+  tuningHints?: {
+    likely_tuning_targets: string[];
+    family_with_highest_review_ratio: { family: string; reviewRatio: number; reviewCount: number; totalCount: number } | null;
+    key_method_with_highest_review_ratio: { method: string; reviewRatio: number; reviewCount: number; totalCount: number } | null;
+    dominant_review_reasons: Array<{ reason: string; count: number }>;
+    likely_next_checks: string[];
+  };
   insertedCount?: number;
   updatedCount?: number;
   unchangedCount?: number;
   duplicateCount?: number;
   skippedArchiveCount?: number;
+  skippedReviewCount?: number;
+  identityWarningCount?: number;
   sourceBatchCount?: number;
   modes?: string[];
 }

@@ -137,6 +137,64 @@ describe('mainline merge ledger', () => {
     expect(Object.keys(ledger)).toHaveLength(0);
   });
 
+  it('merge_eligibility=review は mainline merge しない', async () => {
+    const normalized = join(dir, 'normalized.csv');
+    await writeCsv(normalized, [
+      { _source_key: 'cust', _source_file: 'cust.csv', _merge_eligibility: 'review', _source_record_key: 'rk1', _structural_fingerprint: 'sf1', fm_record_id: '1' },
+    ]);
+    const ledger: Record<string, MergeLedgerEntry> = {};
+    const config = baseConfig(dir);
+    const res = await mergeMainlineRows({
+      normalizedPath: normalized,
+      sourceBatchBySourceKey: { cust: 'b1' },
+      modeBySourceKey: { cust: 'mainline' },
+      importRunId: 'r1',
+      config,
+      ledger,
+    });
+    expect(res.skipped_review).toBe(1);
+    expect(Object.keys(ledger)).toHaveLength(0);
+  });
+
+  it('non-mainline列だけ変わる場合は mainline update しない', async () => {
+    const normalized = join(dir, 'normalized.csv');
+    await writeCsv(normalized, [
+      {
+        _source_key: 'cust', _source_file: 'customer.csv', _merge_eligibility: 'mainline_ready',
+        _source_record_key: 'rk1', _structural_fingerprint_full: 'full1', _structural_fingerprint_mainline: 'main1',
+        internal_note: 'A', customer_name: '田中', phone: '0311112222',
+      },
+    ]);
+    const normalized2 = join(dir, 'normalized2.csv');
+    await writeCsv(normalized2, [
+      {
+        _source_key: 'cust', _source_file: 'customer.csv', _merge_eligibility: 'mainline_ready',
+        _source_record_key: 'rk1', _structural_fingerprint_full: 'full2', _structural_fingerprint_mainline: 'main1',
+        internal_note: 'B', customer_name: '田中', phone: '0311112222',
+      },
+    ]);
+    const ledger: Record<string, MergeLedgerEntry> = {};
+    const config = baseConfig(dir);
+    await mergeMainlineRows({
+      normalizedPath: normalized,
+      sourceBatchBySourceKey: { cust: 'b1' },
+      modeBySourceKey: { cust: 'mainline' },
+      importRunId: 'r1',
+      config,
+      ledger,
+    });
+    const res2 = await mergeMainlineRows({
+      normalizedPath: normalized2,
+      sourceBatchBySourceKey: { cust: 'b2' },
+      modeBySourceKey: { cust: 'mainline' },
+      importRunId: 'r2',
+      config,
+      ledger,
+    });
+    expect(res2.updated).toBe(0);
+    expect(res2.unchanged).toBe(1);
+  });
+
   it('source_batch/import_run が state に永続化される', async () => {
     const fixtures = join(import.meta.dirname, '..', 'fixtures');
     const file = join(fixtures, 'apo_list_2024.csv');
@@ -159,5 +217,73 @@ describe('mainline merge ledger', () => {
     expect(importRun.status).toBe('completed');
 
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('deterministic collision は review_reason=deterministic_collision になる', async () => {
+    const fixtures = join(import.meta.dirname, '..', 'fixtures', 'identity');
+    const file = join(fixtures, 'customer_collision.csv');
+    const config = baseConfig(dir);
+    config.identityStrategies = {
+      '*.csv': {
+        recordFamily: 'customer_master_like',
+        deterministicFields: ['customer_name', 'company_name', 'phone'],
+        mainlineFingerprintFields: ['customer_name', 'company_name', 'phone', 'email'],
+      },
+    };
+    config.inputs = [{ path: file, label: 'collision', sourceKey: 'cust', mode: 'mainline' }];
+
+    const meta = await executeRun('run-all', [file], config);
+    expect(meta.status).toBe('completed');
+
+    const normalizedPath = join(meta.outputDir, 'normalized.csv');
+    const { parse: parseCsvSync } = await import('csv-parse/sync');
+    const rows = parseCsvSync(readFileSync(normalizedPath, 'utf-8'), { columns: true, skip_empty_lines: true, bom: true }) as Array<Record<string, string>>;
+    expect(rows.every(r => r._merge_eligibility === 'review')).toBe(true);
+    expect(rows.every(r => r._review_reason === 'deterministic_collision')).toBe(true);
+    expect(existsSync(join(meta.outputDir, 'deterministic-collisions.json'))).toBe(true);
+    expect((meta.summary?.identityWarningCount ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('activity deterministic collision でも review_reason=deterministic_collision になる', async () => {
+    const fixtures = join(import.meta.dirname, '..', 'fixtures', 'identity', 'activity');
+    const file = join(fixtures, 'call_activity_collision.csv');
+    const config = baseConfig(dir);
+    config.identityStrategies = {
+      '*.csv': {
+        recordFamily: 'call_activity',
+        deterministicFields: ['customer_name', 'phone', 'activity_date', 'operator', 'result_code'],
+        mainlineFingerprintFields: ['customer_name', 'phone', 'activity_date', 'operator', 'result_code', 'note'],
+      },
+    };
+    config.inputs = [{ path: file, label: 'call-collision', sourceKey: 'call', mode: 'mainline' }];
+
+    const meta = await executeRun('run-all', [file], config);
+    const normalizedPath = join(meta.outputDir, 'normalized.csv');
+    const { parse: parseCsvSync } = await import('csv-parse/sync');
+    const rows = parseCsvSync(readFileSync(normalizedPath, 'utf-8'), { columns: true, skip_empty_lines: true, bom: true }) as Array<Record<string, string>>;
+    expect(rows.every(r => r._review_reason === 'deterministic_collision')).toBe(true);
+    expect(rows.every(r => r._merge_eligibility === 'review')).toBe(true);
+  });
+
+  it('apo_list 非 mainline 列変更は merge update にならない', async () => {
+    const fixtures = join(import.meta.dirname, '..', 'fixtures', 'identity', 'activity');
+    const fileA = join(fixtures, 'apo_list_col_a.csv');
+    const fileB = join(fixtures, 'apo_list_non_mainline_changed.csv');
+    const config = baseConfig(dir);
+    config.identityStrategies = {
+      '*.csv': {
+        recordFamily: 'apo_list',
+        deterministicFields: ['customer_name', 'phone', 'activity_date', 'activity_type'],
+        mainlineFingerprintFields: ['customer_name', 'phone', 'activity_date', 'activity_type', 'note'],
+      },
+    };
+    config.inputs = [{ path: fileA, label: 'apo-a', sourceKey: 'apo', mode: 'mainline' }];
+    const first = await executeRun('run-all', [fileA], config);
+    expect((first.summary?.insertedCount ?? 0)).toBeGreaterThan(0);
+
+    config.inputs = [{ path: fileB, label: 'apo-b', sourceKey: 'apo', mode: 'mainline' }];
+    const second = await executeRun('run-all', [fileB], config);
+    expect(second.summary?.updatedCount ?? 0).toBe(0);
+    expect((second.summary?.unchangedCount ?? 0) + (second.summary?.duplicateCount ?? 0)).toBeGreaterThan(0);
   });
 });

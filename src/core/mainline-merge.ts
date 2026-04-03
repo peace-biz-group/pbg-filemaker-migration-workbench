@@ -71,7 +71,7 @@ function buildDiffIdentity(row: Record<string, string>, rule: DiffKeyRule | null
 }
 
 export async function mergeMainlineRows(input: MergeInput): Promise<MergeSummary> {
-  const summary: MergeSummary = { inserted: 0, updated: 0, unchanged: 0, duplicate: 0, skipped_archive: 0, warnings: [] };
+  const summary: MergeSummary = { inserted: 0, updated: 0, unchanged: 0, duplicate: 0, skipped_archive: 0, skipped_review: 0, warnings: [] };
 
   const parser = createReadStream(input.normalizedPath).pipe(parse({ columns: true, skip_empty_lines: true, bom: true }));
   for await (const row of parser) {
@@ -85,14 +85,25 @@ export async function mergeMainlineRows(input: MergeInput): Promise<MergeSummary
       continue;
     }
 
+    if (norm(record._merge_eligibility) && norm(record._merge_eligibility) !== 'mainline_ready') {
+      summary.skipped_review = (summary.skipped_review ?? 0) + 1;
+      summary.warnings.push(`${basename(sourceFile)}: merge eligibility=${record._merge_eligibility} reason=${record._review_reason ?? ''}`);
+      continue;
+    }
+
     const matchedRule = firstRule(input.config, sourceFile);
     const identity = buildDiffIdentity(record, matchedRule?.[1] ?? null);
     if (identity.warning) {
       summary.warnings.push(`${basename(sourceFile)}: ${identity.warning}`);
     }
 
-    const rowFingerprint = norm(record._row_fingerprint) || buildContentFingerprint(record);
-    const ledgerKey = createHash('sha256').update(`${sourceKey}\0${identity.identityKey}`).digest('hex');
+    const rowFingerprint = norm(record._structural_fingerprint_mainline)
+      || norm(record._structural_fingerprint)
+      || norm(record._row_fingerprint)
+      || buildContentFingerprint(record);
+    const sourceRecordKey = norm(record._source_record_key);
+    const ledgerIdentity = sourceRecordKey || identity.identityKey;
+    const ledgerKey = createHash('sha256').update(`${sourceKey}\0${ledgerIdentity}`).digest('hex');
     const existing = input.ledger[ledgerKey];
 
     if (!existing) {

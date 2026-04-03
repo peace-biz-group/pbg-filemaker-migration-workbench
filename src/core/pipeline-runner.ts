@@ -33,6 +33,8 @@ import {
   type MergeSummary,
 } from './import-state.js';
 import { mergeMainlineRows } from './mainline-merge.js';
+import { parse as parseCsvSync } from 'csv-parse/sync';
+import { stringify as stringifyCsvSync } from 'csv-stringify/sync';
 
 export type RunMode = 'profile' | 'normalize' | 'detect-duplicates' | 'classify' | 'run-all' | 'run-batch';
 
@@ -347,6 +349,7 @@ export async function executeRun(
         importRunId: runId,
         sourceKey: srcKeys[i] ?? basename(f),
         ingestOptions: resolveFileIngestOptions(f, config),
+        sourceMode: sourceModes[resolve(f)] ?? 'archive',
         // run 単位の実効 mapping（列レビュー回答から生成）
         effectiveMapping,
       }));
@@ -381,6 +384,7 @@ export async function executeRun(
         unchanged: meta.summary?.unchangedCount ?? 0,
         duplicate: meta.summary?.duplicateCount ?? 0,
         skipped_archive: meta.summary?.skippedArchiveCount ?? 0,
+        skipped_review: meta.summary?.skippedReviewCount ?? 0,
         warnings: [],
       };
       const importRun = finishImportRun(persisted, runId, {
@@ -436,6 +440,7 @@ export async function executeRun(
           unchanged: meta.summary?.unchangedCount ?? 0,
           duplicate: meta.summary?.duplicateCount ?? 0,
           skipped_archive: meta.summary?.skippedArchiveCount ?? 0,
+          skipped_review: meta.summary?.skippedReviewCount ?? 0,
           warnings: [],
         },
         errorMessage: meta.error,
@@ -514,6 +519,8 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
   await writeAnomalies(profile, config);
   emitProgress(runId, 'normalize', '正規化実行中...', 25);
   const normResult = await normalizeFile(file, config, context);
+  const collisionCount = annotateDeterministicCollisions(normResult.normalizedPath, meta.outputDir);
+  const identity = summarizeIdentity(normResult.normalizedPath, meta.outputDir, config);
   const mergeSummary = await applyMainlineMerge(config, meta, runId, normResult.normalizedPath);
   emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 50);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
@@ -530,14 +537,33 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
     parseFailCount: normResult.parseFailCount,
     duplicateGroupCount: dupResult.groups.length,
     classificationBreakdown: classResult.breakdown,
+    totalRecordCount: identity.totalRecords,
+    mainlineReadyCount: identity.mainlineReadyCount,
+    reviewCount: identity.reviewCount,
+    archiveOnlyCount: identity.archiveOnlyCount,
+    reviewReasonBreakdown: identity.reviewReasonBreakdown,
+    mergeEligibilityBreakdown: identity.mergeEligibilityBreakdown,
+    semanticOwnerBreakdown: identity.semanticOwnerBreakdown,
+    sourceRecordKeyMethodBreakdown: identity.sourceRecordKeyMethodBreakdown,
+    recordFamilyBreakdown: identity.recordFamilyBreakdown,
+    reviewSourceRecordKeyMethodBreakdown: identity.reviewSourceRecordKeyMethodBreakdown,
+    reviewRecordFamilyBreakdown: identity.reviewRecordFamilyBreakdown,
+    reviewSemanticOwnerBreakdown: identity.reviewSemanticOwnerBreakdown,
+    topReviewReasons: identity.topReviewReasons,
+    topWarningIndicators: identity.topWarningIndicators,
+    reviewSampleSummary: identity.reviewSampleSummary,
+    tuningHints: identity.tuningHints,
     insertedCount: mergeSummary.inserted,
     updatedCount: mergeSummary.updated,
     unchangedCount: mergeSummary.unchanged,
     duplicateCount: mergeSummary.duplicate,
     skippedArchiveCount: mergeSummary.skipped_archive,
+    skippedReviewCount: mergeSummary.skipped_review ?? 0,
+    identityWarningCount: mergeSummary.warnings.length,
     sourceBatchCount: meta.sourceBatches?.length ?? 0,
     modes: Array.from(new Set(Object.values(meta.sourceModes ?? {}))),
   };
+  meta.summary.identityWarningCount = (meta.summary.identityWarningCount ?? 0) + collisionCount;
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profile);
   emitProgress(runId, 'complete', '完了', 100);
@@ -576,6 +602,8 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
     config,
     contexts,
   );
+  const collisionCount = annotateDeterministicCollisions(normResult.normalizedPath, meta.outputDir);
+  const identity = summarizeIdentity(normResult.normalizedPath, meta.outputDir, config);
   const mergeSummary = await applyMainlineMerge(config, meta, runId, normResult.normalizedPath);
   emitProgress(runId, 'detect-duplicates', '重複検出実行中...', 55);
   const dupResult = await detectDuplicates(normResult.normalizedPath, config);
@@ -592,17 +620,353 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
     parseFailCount: normResult.parseFailCount,
     duplicateGroupCount: dupResult.groups.length,
     classificationBreakdown: classResult.breakdown,
+    totalRecordCount: identity.totalRecords,
+    mainlineReadyCount: identity.mainlineReadyCount,
+    reviewCount: identity.reviewCount,
+    archiveOnlyCount: identity.archiveOnlyCount,
+    reviewReasonBreakdown: identity.reviewReasonBreakdown,
+    mergeEligibilityBreakdown: identity.mergeEligibilityBreakdown,
+    semanticOwnerBreakdown: identity.semanticOwnerBreakdown,
+    sourceRecordKeyMethodBreakdown: identity.sourceRecordKeyMethodBreakdown,
+    recordFamilyBreakdown: identity.recordFamilyBreakdown,
+    reviewSourceRecordKeyMethodBreakdown: identity.reviewSourceRecordKeyMethodBreakdown,
+    reviewRecordFamilyBreakdown: identity.reviewRecordFamilyBreakdown,
+    reviewSemanticOwnerBreakdown: identity.reviewSemanticOwnerBreakdown,
+    topReviewReasons: identity.topReviewReasons,
+    topWarningIndicators: identity.topWarningIndicators,
+    reviewSampleSummary: identity.reviewSampleSummary,
+    tuningHints: identity.tuningHints,
     insertedCount: mergeSummary.inserted,
     updatedCount: mergeSummary.updated,
     unchangedCount: mergeSummary.unchanged,
     duplicateCount: mergeSummary.duplicate,
     skippedArchiveCount: mergeSummary.skipped_archive,
+    skippedReviewCount: mergeSummary.skipped_review ?? 0,
+    identityWarningCount: mergeSummary.warnings.length,
     sourceBatchCount: meta.sourceBatches?.length ?? 0,
     modes: Array.from(new Set(Object.values(meta.sourceModes ?? {}))),
   };
+  meta.summary.identityWarningCount = (meta.summary.identityWarningCount ?? 0) + collisionCount;
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profiles[0]);
   emitProgress(runId, 'complete', '完了', 100);
+}
+
+function annotateDeterministicCollisions(normalizedPath: string, runOutputDir: string): number {
+  if (!existsSync(normalizedPath)) return 0;
+  const raw = readFileSync(normalizedPath, 'utf-8');
+  const rows = parseCsvSync(raw, { columns: true, skip_empty_lines: true, bom: true }) as Array<Record<string, string>>;
+  if (rows.length === 0) return 0;
+
+  const byKey = new Map<string, Set<string>>();
+  for (const row of rows) {
+    if ((row._source_record_key_method ?? '') !== 'deterministic') continue;
+    const key = row._source_record_key ?? '';
+    if (!key) continue;
+    const fp = row._structural_fingerprint_mainline || row._structural_fingerprint || '';
+    if (!byKey.has(key)) byKey.set(key, new Set());
+    byKey.get(key)!.add(fp);
+  }
+  const collidedKeys = new Set(Array.from(byKey.entries()).filter(([, fps]) => fps.size > 1).map(([k]) => k));
+  if (collidedKeys.size === 0) return 0;
+
+  const collisions: Array<{ source_record_key: string; count: number }> = [];
+  for (const key of collidedKeys) {
+    collisions.push({ source_record_key: key, count: byKey.get(key)?.size ?? 0 });
+  }
+  writeFileSync(join(runOutputDir, 'deterministic-collisions.json'), JSON.stringify(collisions, null, 2), 'utf-8');
+
+  for (const row of rows) {
+    if (!collidedKeys.has(row._source_record_key ?? '')) continue;
+    row._merge_eligibility = 'review';
+    row._review_reason = 'deterministic_collision';
+  }
+  const out = stringifyCsvSync(rows, { header: true, columns: Object.keys(rows[0] ?? {}) });
+  writeFileSync(normalizedPath, out, 'utf-8');
+  return collisions.length;
+}
+
+export function summarizeIdentity(
+  normalizedPath: string,
+  runOutputDir?: string,
+  config?: WorkbenchConfig,
+): {
+  totalRecords: number;
+  mainlineReadyCount: number;
+  reviewCount: number;
+  archiveOnlyCount: number;
+  reviewReasonBreakdown: Record<string, number>;
+  mergeEligibilityBreakdown: Record<'mainline_ready' | 'review' | 'archive_only', number>;
+  semanticOwnerBreakdown: Record<string, number>;
+  sourceRecordKeyMethodBreakdown: Record<string, number>;
+  recordFamilyBreakdown: Record<string, number>;
+  reviewSourceRecordKeyMethodBreakdown: Record<string, number>;
+  reviewRecordFamilyBreakdown: Record<string, number>;
+  reviewSemanticOwnerBreakdown: Record<string, number>;
+  topReviewReasons: Array<{ reason: string; count: number }>;
+  topWarningIndicators: Array<{ indicator: string; count: number }>;
+  reviewSampleSummary: {
+    sampleCap: number;
+    reasons: Record<string, number>;
+    totalSampledRows: number;
+    artifactFile: string;
+  };
+  tuningHints: {
+    likely_tuning_targets: string[];
+    family_with_highest_review_ratio: { family: string; reviewRatio: number; reviewCount: number; totalCount: number } | null;
+    key_method_with_highest_review_ratio: { method: string; reviewRatio: number; reviewCount: number; totalCount: number } | null;
+    dominant_review_reasons: Array<{ reason: string; count: number }>;
+    likely_next_checks: string[];
+  };
+} {
+  const resolveFamily = (row: Record<string, string>): string => {
+    const explicit = (row._record_family ?? '').trim();
+    if (explicit) return explicit;
+    const file = basename((row._source_file ?? '').trim());
+    if (!config) return 'unknown';
+    for (const [pattern, strategy] of Object.entries(config.identityStrategies ?? {})) {
+      if (globMatch(pattern, file) && strategy.recordFamily) return strategy.recordFamily;
+    }
+    return 'unknown';
+  };
+  if (!existsSync(normalizedPath)) {
+    return {
+      totalRecords: 0,
+      mainlineReadyCount: 0,
+      reviewCount: 0,
+      archiveOnlyCount: 0,
+      reviewReasonBreakdown: {},
+      mergeEligibilityBreakdown: { mainline_ready: 0, review: 0, archive_only: 0 },
+      semanticOwnerBreakdown: {},
+      sourceRecordKeyMethodBreakdown: {},
+      recordFamilyBreakdown: {},
+      reviewSourceRecordKeyMethodBreakdown: {},
+      reviewRecordFamilyBreakdown: {},
+      reviewSemanticOwnerBreakdown: {},
+      topReviewReasons: [],
+      topWarningIndicators: [],
+      reviewSampleSummary: {
+        sampleCap: 5,
+        reasons: {},
+        totalSampledRows: 0,
+        artifactFile: 'identity-review-samples.json',
+      },
+      tuningHints: {
+        likely_tuning_targets: [],
+        family_with_highest_review_ratio: null,
+        key_method_with_highest_review_ratio: null,
+        dominant_review_reasons: [],
+        likely_next_checks: [],
+      },
+    };
+  }
+  const raw = readFileSync(normalizedPath, 'utf-8');
+  const rows = parseCsvSync(raw, { columns: true, skip_empty_lines: true, bom: true }) as Array<Record<string, string>>;
+  const reviewReasonBreakdown: Record<string, number> = {};
+  const mergeEligibilityBreakdown: Record<'mainline_ready' | 'review' | 'archive_only', number> = {
+    mainline_ready: 0,
+    review: 0,
+    archive_only: 0,
+  };
+  const semanticOwnerBreakdown: Record<string, number> = {};
+  const sourceRecordKeyMethodBreakdown: Record<string, number> = {};
+  const recordFamilyBreakdown: Record<string, number> = {};
+  const reviewSourceRecordKeyMethodBreakdown: Record<string, number> = {};
+  const reviewRecordFamilyBreakdown: Record<string, number> = {};
+  const reviewSemanticOwnerBreakdown: Record<string, number> = {};
+  const sampleCap = 5;
+  const sampleReasonPriority = [
+    'fallback_key',
+    'activity_timestamp_insufficient',
+    'semantic_owner_unknown',
+    'semantic_owner_hybrid',
+    'deterministic_collision',
+    'archive_mode',
+  ];
+  const compactBusinessFields = (row: Record<string, string>, family: string): Record<string, string> => {
+    const pick = (candidates: string[]): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const k of candidates) {
+        const v = (row[k] ?? '').trim();
+        if (v) out[k] = v;
+      }
+      return out;
+    };
+    if (family === 'apo_list') {
+      return pick(['customer_name', 'name', 'phone', 'address', 'list_created_date', 'created_at']);
+    }
+    if (family.includes('customer') || family.includes('deal')) {
+      return pick(['customer_name', 'name', 'phone', 'address', 'contract_id', 'deal_id', 'application_id']);
+    }
+    if (family.includes('call') || family.includes('visit') || family.includes('retry') || family.includes('activity')) {
+      return pick(['activity_date', 'activity_datetime', 'operator', 'staff', 'result', 'outcome', 'note', 'memo']);
+    }
+    return pick(['customer_name', 'name', 'phone', 'address', 'activity_date', 'result']);
+  };
+  const reviewSamplesByReason: Record<string, Array<Record<string, unknown>>> = {};
+  for (const row of rows) {
+    const eligibility = ((row._merge_eligibility ?? '').trim() || 'review') as 'mainline_ready' | 'review' | 'archive_only';
+    if (eligibility in mergeEligibilityBreakdown) {
+      mergeEligibilityBreakdown[eligibility]++;
+    }
+    const reason = (row._review_reason ?? '').trim();
+    if (reason) {
+      reviewReasonBreakdown[reason] = (reviewReasonBreakdown[reason] ?? 0) + 1;
+    }
+    const owner = ((row._semantic_owner ?? '').trim() || 'unknown');
+    semanticOwnerBreakdown[owner] = (semanticOwnerBreakdown[owner] ?? 0) + 1;
+
+    const method = ((row._source_record_key_method ?? '').trim() || 'unknown');
+    sourceRecordKeyMethodBreakdown[method] = (sourceRecordKeyMethodBreakdown[method] ?? 0) + 1;
+
+    const family = resolveFamily(row);
+    recordFamilyBreakdown[family] = (recordFamilyBreakdown[family] ?? 0) + 1;
+
+    if (eligibility === 'review') {
+      reviewSourceRecordKeyMethodBreakdown[method] = (reviewSourceRecordKeyMethodBreakdown[method] ?? 0) + 1;
+      reviewRecordFamilyBreakdown[family] = (reviewRecordFamilyBreakdown[family] ?? 0) + 1;
+      reviewSemanticOwnerBreakdown[owner] = (reviewSemanticOwnerBreakdown[owner] ?? 0) + 1;
+
+      const sampleReason = reason || 'other';
+      const bucket = reviewSamplesByReason[sampleReason] ?? [];
+      if (bucket.length < sampleCap) {
+        bucket.push({
+          source_file: row._source_file ?? '',
+          source_key: row._source_key ?? '',
+          record_family: family,
+          source_record_key_method: method,
+          source_record_key: row._source_record_key ?? '',
+          entity_match_key: row._entity_match_key ?? '',
+          merge_eligibility: eligibility,
+          review_reason: sampleReason,
+          semantic_owner: owner,
+          fields: compactBusinessFields(row, family),
+        });
+      }
+      reviewSamplesByReason[sampleReason] = bucket;
+    }
+  }
+  const topReviewReasons = Object.entries(reviewReasonBreakdown)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([reason, count]) => ({ reason, count }));
+  const topWarningIndicators = Object.entries({
+    ...reviewReasonBreakdown,
+    ...(reviewSourceRecordKeyMethodBreakdown.fallback ? { fallback_method_review: reviewSourceRecordKeyMethodBreakdown.fallback } : {}),
+  })
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([indicator, count]) => ({ indicator, count }));
+  const dominant_review_reasons = topReviewReasons.slice(0, 3);
+  const buildTopRatio = (
+    totalBreakdown: Record<string, number>,
+    reviewBreakdown: Record<string, number>,
+    keyName: 'family' | 'method',
+  ): { family: string; reviewRatio: number; reviewCount: number; totalCount: number } | { method: string; reviewRatio: number; reviewCount: number; totalCount: number } | null => {
+    let bestKey = '';
+    let bestRatio = -1;
+    let bestReview = 0;
+    let bestTotal = 0;
+    for (const [k, total] of Object.entries(totalBreakdown)) {
+      if (!total) continue;
+      const review = reviewBreakdown[k] ?? 0;
+      const ratio = review / total;
+      if (ratio > bestRatio || (ratio === bestRatio && review > bestReview)) {
+        bestKey = k;
+        bestRatio = ratio;
+        bestReview = review;
+        bestTotal = total;
+      }
+    }
+    if (!bestKey) return null;
+    if (keyName === 'family') {
+      return { family: bestKey, reviewRatio: Number(bestRatio.toFixed(4)), reviewCount: bestReview, totalCount: bestTotal };
+    }
+    return { method: bestKey, reviewRatio: Number(bestRatio.toFixed(4)), reviewCount: bestReview, totalCount: bestTotal };
+  };
+  const family_with_highest_review_ratio = buildTopRatio(recordFamilyBreakdown, reviewRecordFamilyBreakdown, 'family') as
+    | { family: string; reviewRatio: number; reviewCount: number; totalCount: number }
+    | null;
+  const key_method_with_highest_review_ratio = buildTopRatio(sourceRecordKeyMethodBreakdown, reviewSourceRecordKeyMethodBreakdown, 'method') as
+    | { method: string; reviewRatio: number; reviewCount: number; totalCount: number }
+    | null;
+  const likely_tuning_targets = new Set<string>();
+  const likely_next_checks = new Set<string>();
+  for (const { reason } of dominant_review_reasons) {
+    if (reason === 'fallback_key') {
+      likely_tuning_targets.add('source_record_key');
+      likely_next_checks.add('inspect source native IDs and deterministic field set for dominant family');
+    } else if (reason === 'activity_timestamp_insufficient') {
+      likely_tuning_targets.add('activity_timestamp_fields');
+      likely_next_checks.add('inspect timestamp/operator/result mappings for activity-like family');
+    } else if (reason === 'semantic_owner_unknown' || reason === 'semantic_owner_hybrid') {
+      likely_tuning_targets.add('semantic_owner_inputs');
+      likely_next_checks.add('inspect family classification and semantic owner inference input columns');
+    } else if (reason === 'deterministic_collision') {
+      likely_tuning_targets.add('deterministic_key_fields');
+      likely_next_checks.add('inspect deterministic key field set and mainline fingerprint field set');
+    } else if (reason === 'archive_mode') {
+      likely_tuning_targets.add('source_mode_routing');
+      likely_next_checks.add('verify sourceMode and intended archive routing');
+    }
+  }
+  if (family_with_highest_review_ratio && family_with_highest_review_ratio.reviewRatio >= 0.5) {
+    likely_next_checks.add(`review-heavy family detected: ${family_with_highest_review_ratio.family}`);
+  }
+  if (key_method_with_highest_review_ratio && key_method_with_highest_review_ratio.reviewRatio >= 0.5) {
+    likely_next_checks.add(`review-heavy key method detected: ${key_method_with_highest_review_ratio.method}`);
+  }
+  const tuningHints = {
+    likely_tuning_targets: Array.from(likely_tuning_targets),
+    family_with_highest_review_ratio,
+    key_method_with_highest_review_ratio,
+    dominant_review_reasons,
+    likely_next_checks: Array.from(likely_next_checks),
+  };
+  const orderedSampleReasons = [
+    ...sampleReasonPriority.filter((r) => (reviewSamplesByReason[r] ?? []).length > 0),
+    ...Object.keys(reviewSamplesByReason).filter((r) => !sampleReasonPriority.includes(r)).sort(),
+  ];
+  const reviewSamples: Record<string, Array<Record<string, unknown>>> = {};
+  for (const reason of orderedSampleReasons) {
+    reviewSamples[reason] = reviewSamplesByReason[reason];
+  }
+  const reviewSampleSummary = {
+    sampleCap,
+    reasons: Object.fromEntries(Object.entries(reviewSamples).map(([reason, sampleRows]) => [reason, sampleRows.length])),
+    totalSampledRows: Object.values(reviewSamples).reduce((acc, items) => acc + items.length, 0),
+    artifactFile: 'identity-review-samples.json',
+  };
+  const summary = {
+    totalRecords: rows.length,
+    mainlineReadyCount: mergeEligibilityBreakdown.mainline_ready,
+    reviewCount: mergeEligibilityBreakdown.review,
+    archiveOnlyCount: mergeEligibilityBreakdown.archive_only,
+    reviewReasonBreakdown,
+    mergeEligibilityBreakdown,
+    semanticOwnerBreakdown,
+    sourceRecordKeyMethodBreakdown,
+    recordFamilyBreakdown,
+    reviewSourceRecordKeyMethodBreakdown,
+    reviewRecordFamilyBreakdown,
+    reviewSemanticOwnerBreakdown,
+    topReviewReasons,
+    topWarningIndicators,
+    reviewSampleSummary,
+    tuningHints,
+  };
+  if (runOutputDir) {
+    writeFileSync(join(runOutputDir, 'review-reason-summary.json'), JSON.stringify(reviewReasonBreakdown, null, 2), 'utf-8');
+    writeFileSync(join(runOutputDir, 'merge-eligibility-summary.json'), JSON.stringify(mergeEligibilityBreakdown, null, 2), 'utf-8');
+    writeFileSync(join(runOutputDir, 'identity-diagnosis.json'), JSON.stringify(summary, null, 2), 'utf-8');
+    writeFileSync(join(runOutputDir, 'identity-tuning-hints.json'), JSON.stringify(tuningHints, null, 2), 'utf-8');
+    writeFileSync(
+      join(runOutputDir, 'identity-review-samples.json'),
+      JSON.stringify({ sampleCap, reasons: reviewSampleSummary.reasons, samples: reviewSamples }, null, 2),
+      'utf-8',
+    );
+  }
+  return summary;
 }
 
 async function applyMainlineMerge(

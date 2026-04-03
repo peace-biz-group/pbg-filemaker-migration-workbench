@@ -84,6 +84,15 @@ const diffKeyRuleSchema = z.object({
   fingerprintFields: z.array(z.string()).optional(),
   mode: z.enum(['mainline', 'archive']).optional(),
 });
+
+const identityStrategySchema = z.object({
+  recordFamily: z.enum(['apo_list', 'customer_master_like', 'deal_like', 'call_activity', 'visit_activity', 'retry_followup']).optional(),
+  nativeIdField: z.string().optional(),
+  deterministicFields: z.array(z.string()).optional(),
+  entityMatchFields: z.array(z.string()).optional(),
+  fingerprintFields: z.array(z.string()).optional(),
+  mainlineFingerprintFields: z.array(z.string()).optional(),
+});
 export const workbenchConfigSchema = z.object({
   /** Display name for this configuration. */
   name: z.string().default('default'),
@@ -140,6 +149,27 @@ export const workbenchConfigSchema = z.object({
 
   /** Diff-key strategy per file pattern for idempotent mainline merge. */
   diffKeys: z.record(z.string(), diffKeyRuleSchema).default({}),
+
+  /** Semantic identity strategy per file pattern. */
+  identityStrategies: z.record(z.string(), identityStrategySchema).default({}),
+
+  /** Semantic owner rules (minimal v1 placeholder for future extension). */
+  semanticOwnerRules: z.object({
+    enforceCustomerFamilyOwner: z.boolean().default(true),
+  }).default({
+    enforceCustomerFamilyOwner: true,
+  }),
+
+  /** Mainline merge eligibility rules. */
+  mainlineEligibilityRules: z.object({
+    disallowFallback: z.boolean().default(true),
+    disallowCustomerOwnerUnknown: z.boolean().default(true),
+    disallowCustomerOwnerHybrid: z.boolean().default(true),
+  }).default({
+    disallowFallback: true,
+    disallowCustomerOwnerUnknown: true,
+    disallowCustomerOwnerHybrid: true,
+  }),
 
   /** Processing chunk size (records per chunk). */
   chunkSize: z.number().min(100).max(100000).default(5000),
