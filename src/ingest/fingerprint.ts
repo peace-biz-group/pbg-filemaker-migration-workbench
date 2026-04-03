@@ -45,3 +45,13 @@ export function sourceBatchId(fileHashes: string[]): string {
 export function logicalSourceKey(sourceKeys: string[]): string {
   return createHash('sha256').update([...sourceKeys].sort().join('|')).digest('hex');
 }
+
+export function semanticStructuralFingerprint(record: Record<string, string>, fields?: string[]): string {
+  const payload = Object.entries(record)
+    .filter(([k]) => !k.startsWith('_') && (!fields || fields.includes(k)))
+    .map(([k, v]) => [k, (v ?? '').trim()] as const)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n');
+  return createHash('sha256').update(payload).digest('hex');
+}

@@ -79,7 +79,7 @@ npx tsx src/cli/index.ts classify <file> [--config workbench.config.json]
 npx tsx src/cli/index.ts run-all <file> [--config workbench.config.json]
 ```
 
-出力: 上記すべてのファイル
+出力: 上記すべてのファイル + `source-batches.json`, `import-run.json`, `merge-summary.json`
 
 ### run-batch — 複数ファイルの横断一括実行
 
@@ -91,7 +91,7 @@ npx tsx src/cli/index.ts run-batch file1.csv file2.csv --config workbench.config
 npx tsx src/cli/index.ts run-batch --config workbench.config.json
 ```
 
-出力: 全ファイルをマージした `normalized.csv`, `duplicates.csv`（クロスファイル重複含む）, `classified.csv`, レポート
+出力: 全ファイルをマージした `normalized.csv`, `duplicates.csv`（クロスファイル重複含む）, `classified.csv`, レポート + `source-batches.json`, `import-run.json`, `merge-summary.json`
 
 ## 設定ファイル
 
@@ -105,14 +105,101 @@ cp workbench.config.sample.json workbench.config.json
 
 | セクション | 説明 |
 |---|---|
-| `inputs` | バッチ実行時の入力ファイルリスト（path, label） |
+| `inputs` | バッチ実行時の入力ファイルリスト（path, label, mode） |
 | `columnMappings` | ファイル名パターン → カラムリネームマッピング |
 | `canonicalFields` | キーフィールド候補名のリスト（電話, メール, 氏名, 会社名, 住所） |
 | `normalization` | 正規化ルールの ON/OFF（会社名・住所・店舗名の正規化を含む） |
 | `duplicateDetection` | 重複検出キーの ON/OFF + 正規化キー使用フラグ |
 | `classification` | 分類判定に使うフィールドリスト + 優先順序 |
+| `diffKeys` | ファイル名パターンごとの差分キー戦略（recordIdField, updatedAtField, naturalKeyFields, fingerprintFields, mode） |
 | `chunkSize` | チャンク処理サイズ（デフォルト 5000） |
 | `outputDir` | 出力ディレクトリ |
+
+### mainline / archive と再投入の挙動（最小仕様）
+
+- `inputs[].mode` または `diffKeys[*].mode` で `mainline` / `archive` を指定できます（未指定は `archive`）。
+- `archive` は profile / normalize / review 出力は行いますが、mainline merge ledger には反映しません。
+- `run-all` / `run-batch` では `merge-summary.json` に `inserted / updated / unchanged / duplicate / skipped_archive` が出ます。
+- ローカル永続状態は `output/.state/workbench-state.json` に保存され、`source_batch` / `import_run` / merge ledger を再起動後も参照できます。
+
+### semantic record identity（差分再投入の土台）
+
+- `normalized.csv` には次の identity 列が付与されます。  
+  `_source_record_key`, `_source_record_key_method(native|deterministic|fallback)`, `_entity_match_key`, `_structural_fingerprint`, `_structural_fingerprint_full`, `_structural_fingerprint_mainline`, `_merge_eligibility(mainline_ready|review|archive_only)`, `_review_reason`, `_semantic_owner`。
+- `_structural_fingerprint_full` はレコード全体の構造指紋、`_structural_fingerprint_mainline` は mainline 反映対象フィールドのみの指紋です。`_structural_fingerprint` は後方互換のため mainline 指紋と同値を保持します。
+- fallback key (`_source_record_key_method=fallback`) は `mainline_ready` にしません（`review`）。
+- 顧客管理系（`recordFamily=customer_master_like`）で `_semantic_owner=unknown/hybrid` のレコードは `review` になり、mainline 自動 merge しません。
+- archive は `archive_only` として mainline merge 対象外です。
+- `_review_reason` は最低限 `fallback_key / semantic_owner_unknown / semantic_owner_hybrid / deterministic_collision / activity_timestamp_insufficient / archive_mode` を使います。
+- deterministic key 衝突時は `deterministic-collisions.json` を run 出力し、該当行は `review` に降格します。
+- activity 系（`call_activity / visit_activity / retry_followup`）は unsafe を優先的に review へ寄せます。`activity_timestamp_insufficient` は「日時はあるが担当/結果など識別に必要な補助情報が不足」の意味です。
+
+### semantic identity v2 テスト（golden fixture）
+
+- 同一内容で行順のみ変更しても `_source_record_key` が不変。
+- 同一内容で列順のみ変更しても `_source_record_key` が不変。
+- 非 mainline 列のみ変更時は full 指紋は変わり得るが mainline 指紋は不変で、mainline update にならない。
+- activity family（call/visit/retry）でも同じ安定性を fixture で検証し、識別不足ケースは `review + activity_timestamp_insufficient` になることを確認。
+
+### dry-run runbook（主要4系統）
+
+> 実データは repo に commit せず、ローカルパス指定で実行してください。
+
+- アポリスト
+  - `npx tsx src/cli/index.ts run-all /path/to/apo_list.csv --config workbench.config.json`
+- 顧客管理系（1本）
+  - `npx tsx src/cli/index.ts run-all /path/to/customer_master.csv --config workbench.config.json`
+- コール履歴系（1本）
+  - `npx tsx src/cli/index.ts run-all /path/to/call_history.csv --config workbench.config.json`
+- 詰め直し履歴（1本）
+  - `npx tsx src/cli/index.ts run-all /path/to/retry_followup.csv --config workbench.config.json`
+
+確認ポイント（各 run ディレクトリ）:
+- `summary.json` の `mainlineReadyCount / reviewCount / archiveOnlyCount / identityWarningCount / skippedReviewCount`
+- `review-reason-summary.json`（reason 内訳）
+- `merge-eligibility-summary.json`（`mainline_ready / review / archive_only`）
+
+異常値の見方:
+- `reviewCount` が多い場合は、まず対象 family と必要識別列（日時・担当・結果系）が入っているか確認する。
+- `activity_timestamp_insufficient` が多い場合は、activity 系の日時・担当/結果列不足を疑う。
+- `deterministic_collision` が多い場合は、同一 deterministic key で mainline 対象値が衝突している可能性が高い。
+- `mainlineReadyCount` が少なすぎる場合でも、まず列の実在・マッピング・family 判定を確認し、ロジック緩和は最後に検討する。
+
+### 実データ dry-run 最短手順（実行補助）
+
+```bash
+APO_FILE=/path/to/apo_list.csv \
+CUSTOMER_FILE=/path/to/customer_master.csv \
+CALL_FILE=/path/to/call_history.csv \
+RETRY_FILE=/path/to/retry_followup.csv \
+CONFIG=./workbench.config.json \
+OUTPUT_DIR=./output \
+npm run dry-run:4
+```
+
+- 4系統を順に `run-all` 実行し、最後に `OUTPUT_DIR/dry-run-compare.json` と `OUTPUT_DIR/dry-run-compare.md` を出力します。
+- 横並びで確認する項目は `totalRecordCount / mainlineReadyCount / reviewCount / archiveOnlyCount / identityWarningCount / skippedReviewCount` です。
+- 詳細は `reviewReasonBreakdown / mergeEligibilityBreakdown / sourceRecordKeyMethodBreakdown / recordFamilyBreakdown / topReviewReasons / topWarningIndicators` を確認してください。
+- 各 run ディレクトリには `identity-tuning-hints.json` も出力され、config 調整の優先確認ポイントを機械可読で確認できます。
+- 各 run ディレクトリには `identity-review-samples.json` も出力され、主要 review reason ごとの代表行を少量サンプリングして確認できます（全件ではありません）。
+
+実データ実行後の確認順（最短）:
+1. `dry-run-compare.md` で `reviewRatio` が高い系統を特定
+2. `dry-run-compare.md` の `dominant_reasons` を確認
+3. 対象 run の `identity-tuning-hints.json` の `likely_tuning_targets / likely_next_checks` を確認
+4. `identity-review-samples.json` の代表行を確認（reason ごとに capped sample）
+
+補助で必要に応じて:
+- `identity-diagnosis.json` の `reviewRecordFamilyBreakdown`（どの family に偏っているか）
+- `reviewSourceRecordKeyMethodBreakdown`（fallback / deterministic / native のどれに偏っているか）
+
+よくある読み分け:
+   - `fallback_key` 多発: 元データに stable key 候補が不足
+   - `activity_timestamp_insufficient` 多発: activity 系の日時/担当/結果列不足
+   - `semantic_owner_unknown` 多発: customer 系の owner 判定に必要な列不足
+   - `semantic_owner_hybrid` 多発: customer_like 判定と owner 判定入力の不整合を確認
+   - `deterministic_collision` 多発: deterministic key 設計に対して mainline 内容が衝突
+   - `archive_mode` 多発: sourceMode と intended archive routing を確認
 
 ### カラムマッピングの仕組み
 

@@ -47,6 +47,25 @@ function route() {
 
 // --- Shared state for upload → confirm flow ---
 let pendingConfirmation = null; // set by upload-identify response
+const PRESET_FILE_NAMES = [
+  '【BBIQ】顧客コール履歴', '【BBIQ】顧客訪問履歴', '【BIZサポート】コール履歴', '【BIZサポート】訪問履歴',
+  '【CAT】コール履歴', '【CAT】訪問履歴', '【CAT】顧客管理', '【CMS】顧客コール履歴',
+  '【CMS】顧客修正履歴', '【CMS】顧客管理', '【CMS】顧客訪問履歴', '【HP】コール履歴',
+  '【HP】訪問履歴', '【HP】顧客管理_福岡', '【Right+】顧客コール履歴', '【Right+】顧客管理',
+  '【USEN】顧客コール履歴', '【USEN】顧客訪問履歴', '【USEN】顧客管理_仙台', '【エアコン】顧客コール履歴',
+  '【エアコン】顧客訪問履歴', '【エアコン】顧客管理_福岡', '【カメラ】顧客コール履歴', '【カメラ】顧客管理',
+  '【カメラ】顧客訪問履歴', '【タブレット】コール履歴', '【タブレット】訪問履歴', '【タブレット】顧客管理_福岡',
+  '【ハルエネ】コール履歴', '【ハルエネ】訪問履歴', '【ハルエネ】顧客管理_福岡', '【代理店CMS】顧客管理',
+  '【共通】CMS顧客管理', '【助成金】コール履歴', '【助成金】訪問履歴', '【助成金】顧客管理_福岡',
+  '【太陽光】コール履歴', '【太陽光】訪問履歴', '【太陽光】顧客管理_福岡', '【火災保険】顧客コール履歴',
+  '【火災保険】顧客訪問履歴', '【火災保険】顧客管理_福岡', 'BBIQ顧客管理_福岡', 'BIZサポート顧客管理_福岡',
+  'HP詰め直し', 'IP詰め直し', 'アポリスト_福岡', 'コール履歴', 'コール履歴_福岡[サポート]',
+  'コール履歴【PAY】', 'コール履歴【UTM】', 'コール履歴【BBIQ】', 'コール履歴【HP】', 'コール履歴【エアコン】',
+  'コール履歴【デルタ】', 'コール履歴【ハルエネ】', 'コール結果【BBIQ】', 'コール結果【PAY】', 'コール結果【UTM】',
+  'コール結果【エアコン】', 'コール結果【デルタ】', 'コール結果【ハルエネ】', 'リース顧客管理_福岡', '商品',
+  '携帯受注', '訪問履歴', '訪問履歴_福岡[サポート]', '訪問履歴【BBIQ】', '訪問履歴【HP】', '訪問履歴【PAY】',
+  '訪問履歴【UTM】', '訪問履歴【エアコン】', '訪問履歴【デルタ】', '訪問履歴【ハルエネ】',
+];
 
 // --- API helpers ---
 
@@ -102,10 +121,12 @@ async function renderDashboard() {
           : '<span class="badge badge-warning">実行中</span>';
       const time = new Date(run.startedAt).toLocaleString('ja-JP');
       const files = run.inputFiles.map(f => f.split('/').pop()).join(', ');
+      const modes = Array.isArray(run.summary?.modes) ? run.summary.modes.join('/') : 'archive';
       html += `
         <a href="/runs/${run.id}" class="run-item">
           <span class="run-mode">${run.mode}</span>
           ${status}
+          <span class="run-files">mode: ${escapeHtml(modes)}</span>
           <span class="run-files" title="${run.inputFiles.join(', ')}">${files}</span>
           <span class="run-time">${time}</span>
         </a>
@@ -697,10 +718,31 @@ function groupProfilesByCategory(profiles = []) {
   return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ja'));
 }
 
+function groupPresetFileNames() {
+  const grouped = new Map();
+  for (const name of PRESET_FILE_NAMES) {
+    const m = name.match(/^【([^】]+)】/);
+    const group = m ? m[1] : 'その他';
+    if (!grouped.has(group)) grouped.set(group, []);
+    grouped.get(group).push(name);
+  }
+  return Array.from(grouped.entries()).sort((a, b) => a[0].localeCompare(b[0], 'ja'));
+}
+
+function findBestPresetFileName(filename = '') {
+  const base = String(filename).replace(/\.[^.]+$/, '').trim();
+  if (!base) return PRESET_FILE_NAMES[0];
+  const exact = PRESET_FILE_NAMES.find((n) => n === base);
+  if (exact) return exact;
+  const include = PRESET_FILE_NAMES.find((n) => n.includes(base) || base.includes(n));
+  return include || PRESET_FILE_NAMES[0];
+}
+
 function inferMeaningFromColumnName(name = '') {
   const n = String(name).toLowerCase();
   const rules = [
-    { re: /(日付|date|許可日|完了日|更新日)/i, v: '日付' },
+    { re: /(日付|date|年月日|ymd|着工日|申込日|受付日|契約日|作成日|登録日|更新日|完了日|訪問日|架電日|対応日|予定日|到着日|満了日|満期日|失効日|開始日|終了日|締日|締め日|支払日|入金日|請求日|検針日|工事日|発生日|実施日|確認日|提出日|配信日|連絡日|計上日|承認日|解約日|利用日|納品日|受注日|期限|期日|日$)/i, v: '日付' },
+    { re: /(時刻|時間|time|timestamp|datetime)/i, v: '日時' },
     { re: /(会社|法人|企業|メーカー)/i, v: '会社名' },
     { re: /(担当者|担当|contact|person)/i, v: '担当者名' },
     { re: /(電話|tel|phone|携帯)/i, v: '電話番号' },
@@ -782,6 +824,7 @@ async function renderRunDetail(runId) {
           実行日時: ${new Date(run.startedAt).toLocaleString('ja-JP')}
           ${run.completedAt ? ` — 完了: ${new Date(run.completedAt).toLocaleString('ja-JP')}` : ''}
           <br>対象ファイル: ${escapeHtml(inputFiles)}
+          <br>source batch数: ${(summary.sourceBatchCount || 0).toLocaleString()} / mode: ${escapeHtml((summary.modes || []).join(', ') || 'archive')}
         </p>
         <div class="stats">
           <div class="stat"><div class="label">レコード数</div><div class="value">${(summary.recordCount || 0).toLocaleString()}</div></div>
@@ -790,6 +833,11 @@ async function renderRunDetail(runId) {
           <div class="stat"><div class="label">別に分けたもの</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">読み取りエラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">同じかも</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline追加</div><div class="value">${(summary.insertedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline更新</div><div class="value">${(summary.updatedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline変更なし</div><div class="value">${(summary.unchangedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">mainline重複</div><div class="value">${(summary.duplicateCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">archiveスキップ</div><div class="value">${(summary.skippedArchiveCount || 0).toLocaleString()}</div></div>
         </div>
         ${run.ingestDiagnoses && Object.keys(run.ingestDiagnoses).length > 0 ? `
           <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
@@ -1316,6 +1364,8 @@ async function renderConfirmPage() {
   const data = pendingConfirmation;
   const pm = data.profileMatch || { profile: null, confidence: 'none', reason: '', alternatives: [] };
   const diag = data.diagnosis || {};
+  const presetGroups = groupPresetFileNames();
+  const defaultPresetName = findBestPresetFileName(data.filename);
 
   // fast path 判定: high confidence の known file のみ
   const isFastPathEligible = pm.profile !== null && pm.confidence === 'high';
@@ -1344,6 +1394,16 @@ async function renderConfirmPage() {
       <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
         ファイル名: <strong>${escapeHtml(data.filename)}</strong>
       </p>
+      <div style="margin-bottom:12px">
+        <label style="display:block;font-size:12px;color:var(--text-secondary);margin-bottom:4px">一覧からファイル名を選択</label>
+        <select id="preset-file-name" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:6px">
+          ${presetGroups.map(([g, items]) => `
+            <optgroup label="${escapeHtml(g)}">
+              ${items.map((name) => `<option value="${escapeHtml(name)}" ${name === defaultPresetName ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+            </optgroup>
+          `).join('')}
+        </select>
+      </div>
   `;
 
   // Profile match result
@@ -1708,6 +1768,7 @@ async function renderConfirmPage() {
   } = {}) {
     const choice = document.querySelector('input[name="file-type-choice"]:checked')?.value;
     const hasHeader = document.querySelector('input[name="has-header"]:checked')?.value !== 'false';
+    const selectedPresetFileName = document.getElementById('preset-file-name')?.value || data.filename;
     const fs = data.formState;
 
     const ingestOptions = {
@@ -1776,10 +1837,10 @@ async function renderConfirmPage() {
       // schema drift guard で「列を確認する」が押された場合は、
       // 既知プロファイルでも強制的に列確認ページへ（fast path 抑制）
       if (choice === 'new' || forceColumnsNav) {
-        pendingConfirmation = { ...data, runId: result.id, selectedProfileId: selectedProfileId || null };
+        pendingConfirmation = { ...data, filename: selectedPresetFileName, runId: result.id, selectedProfileId: selectedProfileId || null };
         navigate(`/runs/${result.id}/columns`);
       } else if (selectedProfileId) {
-        pendingConfirmation = { ...data, runId: result.id, selectedProfileId };
+        pendingConfirmation = { ...data, filename: selectedPresetFileName, runId: result.id, selectedProfileId };
         navigate(`/runs/${result.id}/columns`);
       } else {
         navigate(`/runs/${result.id}`);
@@ -2050,17 +2111,17 @@ async function renderColumnReview(runId) {
           <div class="column-review-field">
             <label>今も使いますか？</label>
             <div class="choice-row">
-              <label><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="yes" ${entry.inUse === 'yes' ? 'checked' : ''}> はい</label>
-              <label><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> いいえ</label>
-              <label><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="unknown" ${entry.inUse === 'unknown' ? 'checked' : ''}> まだ分からない</label>
+              <label class="choice-chip"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="yes" ${entry.inUse === 'yes' ? 'checked' : ''}> はい</label>
+              <label class="choice-chip"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> いいえ</label>
+              <label class="choice-chip choice-chip-wide"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="unknown" ${entry.inUse === 'unknown' ? 'checked' : ''}> まだ分からない</label>
             </div>
           </div>
           <div class="column-review-field">
             <label>必須ですか？</label>
             <div class="choice-row">
-              <label><input type="radio" name="required-${entry.position}" class="col-required" value="yes" ${entry.required === 'yes' ? 'checked' : ''}> はい</label>
-              <label><input type="radio" name="required-${entry.position}" class="col-required" value="no" ${entry.required === 'no' ? 'checked' : ''}> いいえ</label>
-              <label><input type="radio" name="required-${entry.position}" class="col-required" value="unknown" ${entry.required === 'unknown' ? 'checked' : ''}> まだ分からない</label>
+              <label class="choice-chip"><input type="radio" name="required-${entry.position}" class="col-required" value="yes" ${entry.required === 'yes' ? 'checked' : ''}> はい</label>
+              <label class="choice-chip"><input type="radio" name="required-${entry.position}" class="col-required" value="no" ${entry.required === 'no' ? 'checked' : ''}> いいえ</label>
+              <label class="choice-chip choice-chip-wide"><input type="radio" name="required-${entry.position}" class="col-required" value="unknown" ${entry.required === 'unknown' ? 'checked' : ''}> まだ分からない</label>
             </div>
           </div>
           <div class="column-review-field">
