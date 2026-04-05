@@ -435,6 +435,9 @@ tr:hover td { background: #f0f4ff; }
   grid-template-columns: minmax(280px, 1.2fr) minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.1fr);
   gap: 6px 8px;
 }
+.column-review-field {
+  min-width: 0;
+}
 .column-review-field label {
   display: block;
   font-size: 12px;
@@ -453,8 +456,8 @@ tr:hover td { background: #f0f4ff; }
 
 .choice-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(98px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fit, minmax(7.25rem, 1fr));
+  gap: 8px;
   font-size: 13px;
 }
 
@@ -464,14 +467,32 @@ tr:hover td { background: #f0f4ff; }
   align-items: center;
   justify-content: center;
   gap: 5px;
+  min-width: 0;
   width: 100%;
   padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fff;
+  box-sizing: border-box;
 }
 .choice-chip input[type="radio"] {
   margin: 0;
+}
+
+/* 列の確認: はい / いいえ / わからない を1行（折り返しで縦に伸びない） */
+.column-review-field .choice-row {
+  display: flex;
+  flex-flow: row nowrap;
+  gap: 6px;
+  align-items: stretch;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.column-review-field .choice-row .choice-chip {
+  flex: 0 0 auto;
+  width: auto;
+  white-space: nowrap;
+  justify-content: center;
 }
 
 @media (max-width: 1200px) {

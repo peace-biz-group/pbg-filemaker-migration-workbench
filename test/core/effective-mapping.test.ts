@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   buildEffectiveMapping,
+  reconcileColumnReviews,
   saveEffectiveMapping,
   loadEffectiveMapping,
   findEffectiveMappings,
@@ -84,14 +85,14 @@ describe('buildEffectiveMapping', () => {
     expect(result.mapping['電話番号']).toBe('phone');
   });
 
-  it('known file: review.key が空の場合は sourceHeader をそのまま使う', () => {
+  it('known file: review.key が空で根拠がない場合は fail-closed で pending にする', () => {
     const reviews: ColumnReviewEntry[] = [
       { position: 0, label: '商品コード', key: '', meaning: '', inUse: 'yes', required: 'yes', rule: '' },
     ];
     const result = buildEffectiveMapping('run-004', 'new', reviews);
 
-    // key が空なので sourceHeader をそのままキーとして使う
-    expect(result.mapping['商品コード']).toBe('商品コード');
+    expect(result.mapping['商品コード']).toBeUndefined();
+    expect(result.pendingCount).toBe(1);
   });
 
   // --- new file (profileDef なし) ---
@@ -150,6 +151,54 @@ describe('buildEffectiveMapping', () => {
     expect(result.mapping).toEqual({});
     expect(result.activeCount).toBe(0);
     expect(result.columns).toHaveLength(0);
+  });
+
+  it('same raw + same schema でも危険な position 起点の誤マッピングを pending に落とす', () => {
+    const profileDef: ColumnDef[] = [
+      { position: 0, label: '日時', key: 'call_datetime', required: true, headerHints: ['日時', '架電日', 'コール日'] },
+      { position: 1, label: '電話番号', key: 'phone', required: true, headerHints: ['電話番号', 'TEL'] },
+      { position: 2, label: '会社名', key: 'company_name', required: false, headerHints: ['会社名', '法人名'] },
+      { position: 3, label: '担当者名', key: 'contact_name', required: false, headerHints: ['担当者', '氏名'] },
+      { position: 4, label: '結果', key: 'result', required: false, headerHints: ['結果', 'ステータス'] },
+      { position: 5, label: '備考', key: 'notes', required: false, headerHints: ['備考', 'メモ'] },
+    ];
+    const badReviews: ColumnReviewEntry[] = [
+      { position: 0, label: '<テーブルが見つかりません>', key: 'call_datetime', meaning: '日時', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 1, label: '日付', key: 'phone', meaning: '電話番号', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 2, label: '時刻', key: 'company_name', meaning: '会社名', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 3, label: '担当者', key: 'contact_name', meaning: '担当者名', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 4, label: '電話番号【検索】', key: 'result', meaning: '結果', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 5, label: '内容', key: 'notes', meaning: '備考', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 6, label: '日時', key: '', meaning: '', inUse: 'yes', required: 'yes', rule: '' },
+    ];
+
+    const result = buildEffectiveMapping('run-call', 'call-history', badReviews, profileDef);
+
+    expect(result.mapping['<テーブルが見つかりません>']).toBeUndefined();
+    expect(result.mapping['日付']).toBeUndefined();
+    expect(result.mapping['時刻']).toBeUndefined();
+    expect(result.mapping['担当者']).toBe('contact_name');
+    expect(result.mapping['電話番号【検索】']).toBe('phone');
+    expect(result.mapping['内容']).toBe('notes');
+    expect(result.mapping['日時']).toBe('call_datetime');
+    expect(result.mapping['お客様担当']).toBeUndefined();
+    expect(result.pendingCount).toBe(3);
+  });
+
+  it('actualColumns を使って source header を run の列順へ補正する', () => {
+    const reviews: ColumnReviewEntry[] = [
+      { position: 1, label: '古い列名', key: 'phone', meaning: '電話番号', inUse: 'yes', required: 'yes', rule: '' },
+      { position: 0, label: '別名', key: 'company_name', meaning: '会社名', inUse: 'yes', required: 'yes', rule: '' },
+    ];
+
+    const reconciled = reconcileColumnReviews(reviews, {
+      actualColumns: ['会社名', '電話番号【検索】'],
+      profileDef: null,
+    });
+
+    expect(reconciled.map((r) => r.label)).toEqual(['会社名', '電話番号【検索】']);
+    expect(reconciled[0]?.key).toBe('company_name');
+    expect(reconciled[1]?.key).toBe('phone');
   });
 });
 

@@ -41,7 +41,7 @@ export async function ingestXlsx(
     format: 'xlsx',
     sheetName,
     headerApplied: hasHeader,
-    totalRowsRead: 0,
+    totalRowsRead: rows.length,
     parseFailCount: 0,
     parseWarnings,
   };
@@ -64,7 +64,6 @@ export async function ingestXlsx(
       if (chunk.length >= chunkSize) { yield chunk; chunk = []; }
     }
     if (chunk.length > 0) yield chunk;
-    diagnosis.totalRowsRead = rowIndex;
   }
 
   return {

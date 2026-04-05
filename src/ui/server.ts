@@ -24,6 +24,7 @@ import type { FileProfile, ColumnReviewEntry } from '../file-profiles/index.js';
 import { buildAutoReviews } from '../file-profiles/fast-path.js';
 import {
   buildEffectiveMapping,
+  reconcileColumnReviews,
   saveEffectiveMapping,
   loadEffectiveMapping,
   findEffectiveMappings,
@@ -104,6 +105,14 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
   const uploadDir = join(baseOutputDir, '.uploads');
   mkdirSync(uploadDir, { recursive: true });
   const upload = multer({ dest: uploadDir });
+
+  function getRunColumnsForReview(runId: string): string[] {
+    const run = getRun(baseOutputDir, runId);
+    if (!run) return [];
+    const firstFile = run.inputFiles[0];
+    if (!firstFile) return [];
+    return run.inputColumns?.[firstFile] ?? run.columnNames ?? [];
+  }
 
   // --- Pages (serve index.html for all page routes) ---
   const indexHtml = join(__dirname, 'public', 'index.html');
@@ -691,12 +700,15 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         return res.status(400).json({ error: 'reviews は配列で指定してください' });
       }
 
+      const profileDef = profileId !== 'new' ? getProfileById(profileId)?.columns ?? null : null;
+      const actualColumns = getRunColumnsForReview(runId);
+      const reconciledReviews = reconcileColumnReviews(reviews, { actualColumns, profileDef });
+
       // 列レビューを保存
-      saveColumnReview(baseOutputDir, runId, profileId, reviews);
+      saveColumnReview(baseOutputDir, runId, profileId, reconciledReviews);
 
       // 実効 mapping を生成して保存
-      const profileDef = profileId !== 'new' ? getProfileById(profileId)?.columns ?? null : null;
-      const effectiveResult = buildEffectiveMapping(runId, profileId, reviews, profileDef);
+      const effectiveResult = buildEffectiveMapping(runId, profileId, reconciledReviews, profileDef);
       saveEffectiveMapping(baseOutputDir, effectiveResult);
 
       res.json({
@@ -760,13 +772,18 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
         return res.status(400).json({ error: 'profileId が必要です' });
       }
 
-      // 保存済みの実効 mapping を読み込む
-      const effectiveResult = loadEffectiveMapping(baseOutputDir, req.params.id, profileId);
-      if (!effectiveResult) {
+      const profileDef = profileId !== 'new' ? getProfileById(profileId)?.columns ?? null : null;
+      const savedReviews = loadColumnReview(baseOutputDir, req.params.id, profileId);
+      if (!savedReviews) {
         return res.status(404).json({
           error: '列レビューの回答が見つかりません。先に列の回答を保存してください。',
         });
       }
+      const actualColumns = original.inputColumns?.[original.inputFiles[0] ?? ''] ?? original.columnNames ?? [];
+      const reconciledReviews = reconcileColumnReviews(savedReviews, { actualColumns, profileDef });
+      saveColumnReview(baseOutputDir, req.params.id, profileId, reconciledReviews);
+      const effectiveResult = buildEffectiveMapping(req.params.id, profileId, reconciledReviews, profileDef);
+      saveEffectiveMapping(baseOutputDir, effectiveResult);
 
       const configPath = original.configPath || undefined;
       const config = loadConfig(configPath);
@@ -841,8 +858,13 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       }
 
       // profile の列定義から自動レビューを生成（全て inUse=yes）
-      const actualColumns = Array.isArray(columns) ? columns : [];
-      const autoReviews = buildAutoReviews(profile.columns, actualColumns);
+      const actualColumns = getRunColumnsForReview(runId).length > 0
+        ? getRunColumnsForReview(runId)
+        : Array.isArray(columns) ? columns : [];
+      const autoReviews = reconcileColumnReviews(
+        buildAutoReviews(profile.columns, actualColumns),
+        { actualColumns, profileDef: profile.columns },
+      );
 
       // 列レビューを保存
       saveColumnReview(baseOutputDir, runId, profileId, autoReviews);

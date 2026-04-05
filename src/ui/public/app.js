@@ -751,13 +751,45 @@ function inferMeaningFromColumnName(name = '') {
     { re: /(mail|メール|e-mail)/i, v: 'メール' },
     { re: /(住所|所在地|address)/i, v: '住所' },
     { re: /(顧客id|customer.?id|id)/i, v: '顧客ID' },
-    { re: /(備考|メモ|note)/i, v: '備考' },
+    { re: /(内容|備考|メモ|note)/i, v: '備考' },
     { re: /(ステータス|status|結果)/i, v: 'ステータス' },
     { re: /(契約者|契約)/i, v: '契約者' },
     { re: /(営業担当|営業)/i, v: '営業担当' },
   ];
   const hit = rules.find((r) => r.re.test(n));
   return hit ? hit.v : '';
+}
+
+function isSuspiciousColumnHeader(name = '') {
+  return /^<.*>$/.test(name) || /テーブルが見つかりません/.test(name);
+}
+
+function inferSafeCanonicalKey(name = '') {
+  if (isSuspiciousColumnHeader(name)) return '';
+  const rules = [
+    { re: /(電話|tel|phone|携帯|fax|連絡先)/i, v: 'phone' },
+    { re: /(mail|メール|e-mail)/i, v: 'email' },
+    { re: /(会社|法人|企業|店舗|店名|販売店)/i, v: 'company_name' },
+    { re: /(担当者|担当|氏名|名前|お客様担当|訪問担当)/i, v: 'contact_name' },
+    { re: /(結果|ステータス|状況|進捗|報告)/i, v: 'result' },
+    { re: /(内容|備考|メモ|コメント|note)/i, v: 'notes' },
+  ];
+  const hit = rules.find((r) => r.re.test(name));
+  return hit ? hit.v : '';
+}
+
+function headerMatchesProfileColumn(headerName = '', profileCol) {
+  if (!profileCol) return false;
+  const source = String(headerName).trim().toLowerCase();
+  const candidates = [profileCol.label, ...(profileCol.headerHints || [])]
+    .map((v) => String(v || '').trim().toLowerCase())
+    .filter(Boolean);
+  return candidates.includes(source);
+}
+
+function findCompatibleProfileColumn(headerName = '', profile = null) {
+  if (!profile || !Array.isArray(profile.columns)) return null;
+  return profile.columns.find((col) => headerMatchesProfileColumn(headerName, col)) || null;
 }
 
 // --- Run Detail ---
@@ -2024,21 +2056,23 @@ async function renderColumnReview(runId) {
 
   // Build column entries
   const entries = columns.map((col, i) => {
-    const profileCol = profile?.columns?.find(c => c.position === i);
+    const profileCol = findCompatibleProfileColumn(col, profile);
     const existing = existingReview?.find(r => r.position === i);
     const samples = previewRows.slice(0, 5).map(r => r[col]).filter(Boolean);
+    const inferredKey = profileCol?.key || inferSafeCanonicalKey(col);
+    const existingInUse = existing?.inUse === 'yes' && !inferredKey ? 'unknown' : existing?.inUse;
 
     return {
       position: i,
       headerName: col,
       profileLabel: profileCol?.label || '',
-      profileKey: profileCol?.key || '',
+      profileKey: inferredKey,
       profileRequired: profileCol?.required ?? false,
       profileRule: profileCol?.rule || '',
       samples,
       meaning: existing?.meaning ?? profileCol?.label ?? inferMeaningFromColumnName(col),
-      inUse: existing?.inUse ?? 'yes',
-      required: existing?.required ?? 'yes',
+      inUse: existingInUse ?? (inferredKey ? 'yes' : 'unknown'),
+      required: existing?.required ?? (profileCol ? (profileCol.required ? 'yes' : 'no') : 'unknown'),
       rule: existing?.rule ?? profileCol?.rule ?? '',
     };
   });
@@ -2153,7 +2187,7 @@ async function renderColumnReview(runId) {
       reviews.push({
         position: pos,
         label: columns[pos] || '',
-        key: entries[pos]?.profileKey || columns[pos] || '',
+        key: entries[pos]?.profileKey || '',
         meaning: item.querySelector('.col-meaning')?.value || '',
         inUse: item.querySelector('.col-inuse:checked')?.value || 'yes',
         required: item.querySelector('.col-required:checked')?.value || 'yes',
