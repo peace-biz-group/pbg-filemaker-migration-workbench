@@ -23,7 +23,7 @@ export interface MergeInput {
   ledger: Record<string, MergeLedgerEntry>;
 }
 
-function firstRule(config: WorkbenchConfig, sourceFile: string): [string, DiffKeyRule] | null {
+export function firstRule(config: WorkbenchConfig, sourceFile: string): [string, DiffKeyRule] | null {
   const fileName = basename(sourceFile);
   for (const [pattern, rule] of Object.entries(config.diffKeys ?? {})) {
     if (globMatch(pattern, fileName)) return [pattern, rule];
@@ -35,7 +35,7 @@ function norm(v: string | undefined): string {
   return (v ?? '').trim();
 }
 
-function buildContentFingerprint(row: Record<string, string>, fields?: string[]): string {
+export function buildContentFingerprint(row: Record<string, string>, fields?: string[]): string {
   const filtered = Object.entries(row)
     .filter(([k]) => !k.startsWith('_') && (!fields || fields.includes(k)))
     .sort(([a], [b]) => a.localeCompare(b));
@@ -43,7 +43,7 @@ function buildContentFingerprint(row: Record<string, string>, fields?: string[])
   return createHash('sha256').update(payload).digest('hex');
 }
 
-function buildDiffIdentity(row: Record<string, string>, rule: DiffKeyRule | null): { identityKey: string; diffKey: string; updatedAt?: string; warning?: string } {
+export function buildDiffIdentity(row: Record<string, string>, rule: DiffKeyRule | null): { identityKey: string; diffKey: string; updatedAt?: string; warning?: string } {
   if (!rule) {
     const fp = buildContentFingerprint(row);
     return { identityKey: `fp:${fp}`, diffKey: `fp:${fp}`, warning: 'diff key rule missing; fallback fingerprint' };

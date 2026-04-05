@@ -3,7 +3,7 @@
  */
 
 import { writeFileSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type { ReportSummary, ProfileResult } from '../types/index.js';
 
 /** Remove control characters (except tab/newline) from a string for safe Markdown output. */
@@ -20,6 +20,14 @@ export function writeSummaryJson(outputDir: string, summary: ReportSummary): voi
 }
 
 export function writeSummaryMarkdown(outputDir: string, summary: ReportSummary, profile?: ProfileResult): void {
+  const nextActionLabel = (artifact: NonNullable<ReportSummary['nextActionView']>['artifacts'][number]): string => {
+    if (artifact.file === 'review-pack.csv') {
+      const reviewCount = artifact.finalDispositionBreakdown.review ?? 0;
+      const archiveOnlyCount = artifact.finalDispositionBreakdown.archive_only ?? 0;
+      return `${artifact.file} (review=${reviewCount.toLocaleString()}, archive_only=${archiveOnlyCount.toLocaleString()})`;
+    }
+    return artifact.file;
+  };
   const lines: string[] = [
     '# FileMaker Data Workbench — Summary Report',
     '',
@@ -46,6 +54,73 @@ export function writeSummaryMarkdown(outputDir: string, summary: ReportSummary, 
     lines.push(`| ${type} | ${count.toLocaleString()} |`);
   }
   lines.push('');
+
+  if (summary.sourceRoutingDecisions && Object.keys(summary.sourceRoutingDecisions).length > 0) {
+    lines.push('## Source Routing', '');
+    lines.push('| Source | Mode | Reason | Mixed Export |');
+    lines.push('|--------|------|--------|--------------|');
+    for (const [file, decision] of Object.entries(summary.sourceRoutingDecisions)) {
+      lines.push(
+        `| ${sanitizeForMarkdown(basename(file))} | ${decision.mode} | ${sanitizeForMarkdown(decision.reason)} | ${decision.mixedParentChildExport ? 'yes' : 'no'} |`,
+      );
+    }
+    lines.push('');
+  }
+
+  if (summary.sourceRecordFlows && Object.keys(summary.sourceRecordFlows).length > 0) {
+    lines.push('## Source Record Flow', '');
+    lines.push('| Source | Input Rows | Parent Candidates | Ambiguous Parent | Quarantine | Child-only | Mixed Parent+Child |');
+    lines.push('|--------|------------|-------------------|------------------|------------|------------|--------------------|');
+    for (const [file, flow] of Object.entries(summary.sourceRecordFlows)) {
+      lines.push(
+        `| ${sanitizeForMarkdown(basename(file))} | ${flow.inputRowCount.toLocaleString()} | ${flow.parentCandidateRowCount.toLocaleString()} | ${flow.ambiguousParentRowCount.toLocaleString()} | ${flow.quarantineRowCount.toLocaleString()} | ${flow.childOnlyContinuationRowCount.toLocaleString()} | ${flow.mixedParentChildRowCount.toLocaleString()} |`,
+      );
+    }
+    lines.push('');
+  }
+
+  if (summary.parentExtractionSummaries && Object.keys(summary.parentExtractionSummaries).length > 0) {
+    lines.push('## Parent Extraction', '');
+    lines.push('| Source | Extracted Parent | Ambiguous | Child Continuation |');
+    lines.push('|--------|------------------|-----------|--------------------|');
+    for (const [file, extraction] of Object.entries(summary.parentExtractionSummaries)) {
+      lines.push(
+        `| ${sanitizeForMarkdown(basename(file))} | ${extraction.extractedParentCount.toLocaleString()} | ${extraction.ambiguousParentCount.toLocaleString()} | ${extraction.childContinuationCount.toLocaleString()} |`,
+      );
+    }
+    lines.push('');
+  }
+
+  if (summary.countReconciliation) {
+    lines.push('## Count Reconciliation', '');
+    lines.push('| Metric | Value |');
+    lines.push('|--------|-------|');
+    lines.push(`| Input Rows | ${summary.countReconciliation.inputRowCount.toLocaleString()} |`);
+    lines.push(`| Normalized Rows | ${summary.countReconciliation.normalizedRowCount.toLocaleString()} |`);
+    lines.push(`| Quarantine Rows | ${summary.countReconciliation.quarantineRowCount.toLocaleString()} |`);
+    lines.push(`| Accounted Rows | ${summary.countReconciliation.accountedRowCount.toLocaleString()} |`);
+    lines.push(`| Unaccounted Rows | ${summary.countReconciliation.unaccountedRowCount.toLocaleString()} |`);
+    lines.push('');
+    lines.push('| Final Disposition | Count |');
+    lines.push('|-------------------|-------|');
+    for (const [disposition, count] of Object.entries(summary.countReconciliation.finalDispositionBreakdown)) {
+      if (!count) continue;
+      lines.push(`| ${sanitizeForMarkdown(disposition)} | ${count.toLocaleString()} |`);
+    }
+    lines.push('');
+  }
+
+  if (summary.nextActionView && summary.nextActionView.artifacts.length > 0) {
+    lines.push('## Next Action Artifacts', '');
+    lines.push('| Artifact | Rows | Final Dispositions |');
+    lines.push('|----------|------|--------------------|');
+    for (const artifact of summary.nextActionView.artifacts) {
+      lines.push(
+        `| ${sanitizeForMarkdown(nextActionLabel(artifact))} | ${artifact.rowCount.toLocaleString()} | ${sanitizeForMarkdown(artifact.finalDispositions.join(', '))} |`,
+      );
+    }
+    lines.push('');
+  }
 
   // Column profiles
   if (profile) {

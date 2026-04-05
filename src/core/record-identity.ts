@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import type { WorkbenchConfig } from '../config/schema.js';
 import { globMatch } from './column-mapper.js';
 import { semanticStructuralFingerprint } from '../ingest/fingerprint.js';
+import type { ParentExtractionDecision, SourceRoutingDecision } from '../types/index.js';
 
 export type SourceRecordKeyMethod = 'native' | 'deterministic' | 'fallback';
 export type MergeEligibility = 'mainline_ready' | 'review' | 'archive_only';
@@ -71,8 +72,10 @@ function structuralFingerprint(record: Record<string, string>, fields?: string[]
   return semanticStructuralFingerprint(record, fields);
 }
 
-function pickFamily(strategy: IdentityStrategy): RecordFamily {
-  return strategy.recordFamily ?? 'unknown';
+function pickFamily(strategy: IdentityStrategy, route?: SourceRoutingDecision): RecordFamily {
+  if (strategy.recordFamily) return strategy.recordFamily;
+  if (route?.recommendedRecordFamily === 'customer_master_like') return 'customer_master_like';
+  return 'unknown';
 }
 
 function semanticOwnerOf(record: Record<string, string>, family: RecordFamily): SemanticOwner {
@@ -112,11 +115,11 @@ function isActivityTimestampInsufficient(record: Record<string, string>, family:
 
 export function buildRecordIdentity(
   record: Record<string, string>,
-  opts: { sourceFile: string; mode: 'mainline' | 'archive' },
+  opts: { sourceFile: string; mode: 'mainline' | 'archive'; sourceRouting?: SourceRoutingDecision; parentExtraction?: ParentExtractionDecision },
   config: WorkbenchConfig,
 ): RecordIdentity {
   const strategy = resolveStrategy(opts.sourceFile, config);
-  const family = pickFamily(strategy);
+  const family = pickFamily(strategy, opts.sourceRouting);
 
   const nativeField = strategy.nativeIdField;
   const nativeValue = nativeField ? norm(record[nativeField]) : '';
@@ -158,6 +161,12 @@ export function buildRecordIdentity(
   if (opts.mode === 'archive') {
     mergeEligibility = 'archive_only';
     reviewReason = 'archive_mode';
+  } else if (opts.parentExtraction?.classification === 'ambiguous_parent') {
+    mergeEligibility = 'review';
+    reviewReason = 'mixed_parent_child_ambiguous';
+  } else if (opts.sourceRouting?.mixedParentChildExport && opts.parentExtraction?.classification !== 'parent_candidate') {
+    mergeEligibility = 'review';
+    reviewReason = 'mixed_parent_child_export';
   } else if (method === 'fallback' && config.mainlineEligibilityRules.disallowFallback) {
     mergeEligibility = 'review';
     reviewReason = 'fallback_key';

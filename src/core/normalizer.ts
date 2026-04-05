@@ -2,7 +2,14 @@
  * Record normalizer — applies column mapping + normalization rules to each record in chunks.
  */
 
-import type { RawRecord, BusinessQuarantineReason } from '../types/index.js';
+import type {
+  RawRecord,
+  BusinessQuarantineReason,
+  IngestDiagnosis,
+  ParentExtractionSummary,
+  SourceRecordFlow,
+  SourceRoutingDecision,
+} from '../types/index.js';
 import type { WorkbenchConfig } from '../config/schema.js';
 import { ingestFile } from '../io/file-reader.js';
 import { writeCsv, appendCsv } from '../io/csv-writer.js';
@@ -11,11 +18,16 @@ import { normalizeEmail } from '../normalizers/email.js';
 import { normalizeText } from '../normalizers/text.js';
 import { normalizeDate } from '../normalizers/date.js';
 import { normalizeCompanyName, normalizeAddress, normalizeStoreName } from '../normalizers/company.js';
-import { findBestMapping, applyColumnMapping, mapColumnNames } from './column-mapper.js';
-import { join } from 'node:path';
+import { findBestMapping, applyColumnMapping } from './column-mapper.js';
+import { join, resolve } from 'node:path';
 import { ensureOutputDir } from '../io/report-writer.js';
 import type { IngestOptions } from '../ingest/ingest-options.js';
 import { buildRecordIdentity } from './record-identity.js';
+import {
+  accumulateParentExtraction,
+  emptyParentExtractionSummary,
+  extractParentFromMixedRecord,
+} from './parent-extraction.js';
 
 function matchesAny(colName: string, patterns: string[]): boolean {
   const lower = colName.toLowerCase();
@@ -111,6 +123,7 @@ export interface NormalizeContext {
    */
   effectiveMapping?: Record<string, string> | null;
   sourceMode?: 'mainline' | 'archive';
+  sourceRouting?: SourceRoutingDecision;
 }
 
 export interface NormalizeResult {
@@ -122,6 +135,30 @@ export interface NormalizeResult {
   parseQuarantinePath: string;
   schemaFingerprint: string;
   sourceFileHash: string;
+  recordCount: number;
+  columnCount: number;
+  ingestDiagnoses: Record<string, IngestDiagnosis>;
+  sourceRecordFlows: Record<string, SourceRecordFlow>;
+  parentExtractionSummaries: Record<string, ParentExtractionSummary>;
+}
+
+function hasChildData(record: RawRecord, routing?: SourceRoutingDecision): boolean {
+  if (!routing || routing.childColumnNames.length === 0) return false;
+  return routing.childColumnNames.some((column) => (record[column] ?? '').trim());
+}
+
+function emptySourceRecordFlow(): SourceRecordFlow {
+  return {
+    inputRowCount: 0,
+    normalizedRowCount: 0,
+    quarantineRowCount: 0,
+    parseFailCount: 0,
+    rowsWithChildData: 0,
+    parentCandidateRowCount: 0,
+    ambiguousParentRowCount: 0,
+    childOnlyContinuationRowCount: 0,
+    mixedParentChildRowCount: 0,
+  };
 }
 
 /**
@@ -140,6 +177,7 @@ export async function normalizeFile(
   appendMode?: boolean,
 ): Promise<NormalizeResult> {
   ensureOutputDir(config.outputDir);
+  const sourcePathKey = resolve(filePath);
   const suffix = outputSuffix ? `_${outputSuffix}` : '';
   const normalizedPath = join(config.outputDir, `normalized${suffix}.csv`);
   const quarantinePath = join(config.outputDir, `quarantine${suffix}.csv`);
@@ -157,21 +195,31 @@ export async function normalizeFile(
   let quarantineCount = 0;
   let mappedColumns: string[] | undefined;
   let isFirst = !appendMode;
+  const sourceRecordFlow = emptySourceRecordFlow();
+  const parentExtractionSummary = emptyParentExtractionSummary();
 
   for await (const chunk of ingestResult.records) {
     const normalized: RawRecord[] = [];
     const quarantine: RawRecord[] = [];
 
     for (const record of chunk) {
+      sourceRecordFlow.inputRowCount++;
+      const parentExtraction = extractParentFromMixedRecord(record, context.sourceRouting);
+      accumulateParentExtraction(parentExtractionSummary, parentExtraction);
+      const mappedBase = mapping ? applyColumnMapping(record, mapping) : { ...record };
+      const mapped = { ...parentExtraction.extractedCanonicalFields, ...mappedBase };
       if (!mappedColumns) {
-        const cols = Object.keys(record).filter(k => !k.startsWith('_'));
-        mappedColumns = mapping
-          ? ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', ...mapColumnNames(cols, mapping)]
-          : ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', ...cols];
+        mappedColumns = ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', '_parent_extraction_classification', '_parent_extraction_reason', '_parent_extraction_used_columns', '_final_disposition', '_final_disposition_reason', ...Object.keys(mapped).filter((k) => !k.startsWith('_'))];
       }
-
-      const mapped = mapping ? applyColumnMapping(record, mapping) : record;
       const norm = normalizeRecord(mapped, config);
+      const rowHasChildData = hasChildData(record, context.sourceRouting);
+      if (rowHasChildData) sourceRecordFlow.rowsWithChildData++;
+      if (parentExtraction.classification === 'parent_candidate') sourceRecordFlow.parentCandidateRowCount++;
+      if (parentExtraction.classification === 'ambiguous_parent') sourceRecordFlow.ambiguousParentRowCount++;
+      if (parentExtraction.classification === 'child_continuation') sourceRecordFlow.childOnlyContinuationRowCount++;
+      if (rowHasChildData && parentExtraction.classification !== 'child_continuation') {
+        sourceRecordFlow.mixedParentChildRowCount++;
+      }
 
       // Add lineage
       norm['_source_file'] = filePath;
@@ -179,8 +227,20 @@ export async function normalizeFile(
       norm['_source_batch_id'] = context.sourceBatchId;
       norm['_import_run_id'] = context.importRunId;
       norm['_schema_fingerprint'] = ingestResult.schemaFingerprint;
+      norm['_parent_extraction_classification'] = parentExtraction.classification;
+      norm['_parent_extraction_reason'] = parentExtraction.reason;
+      norm['_parent_extraction_used_columns'] = parentExtraction.usedSourceColumns.join('|');
       // _row_fingerprint already in record from ingest layer
-      const identity = buildRecordIdentity(norm, { sourceFile: filePath, mode: context.sourceMode ?? 'archive' }, config);
+      const identity = buildRecordIdentity(
+        norm,
+        {
+          sourceFile: filePath,
+          mode: context.sourceMode ?? 'archive',
+          sourceRouting: context.sourceRouting,
+          parentExtraction,
+        },
+        config,
+      );
       norm['_source_record_key'] = identity.sourceRecordKey;
       norm['_source_record_key_method'] = identity.sourceRecordKeyMethod;
       norm['_entity_match_key'] = identity.entityMatchKey;
@@ -190,13 +250,26 @@ export async function normalizeFile(
       norm['_merge_eligibility'] = identity.mergeEligibility;
       norm['_review_reason'] = identity.reviewReason ?? '';
       norm['_semantic_owner'] = identity.semanticOwner ?? '';
+      norm['_final_disposition'] = identity.mergeEligibility;
+      norm['_final_disposition_reason'] = identity.mergeEligibility === 'mainline_ready'
+        ? 'eligible_for_mainline_merge'
+        : (identity.reviewReason ?? identity.mergeEligibility);
 
-      const reason = businessQuarantineReason(norm, config);
+      const emptyReason = businessQuarantineReason(norm, config);
+      const reason = parentExtraction.classification === 'child_continuation'
+        ? 'CHILD_CONTINUATION'
+        : parentExtraction.classification === 'ambiguous_parent'
+          ? null
+          : emptyReason;
       if (reason) {
         norm['_quarantine_reason'] = reason;
+        norm['_final_disposition'] = 'quarantine';
+        norm['_final_disposition_reason'] = reason;
         quarantine.push(norm);
+        sourceRecordFlow.quarantineRowCount++;
       } else {
         normalized.push(norm);
+        sourceRecordFlow.normalizedRowCount++;
       }
     }
 
@@ -212,6 +285,13 @@ export async function normalizeFile(
     normalizedCount += normalized.length;
     quarantineCount += quarantine.length;
   }
+
+  sourceRecordFlow.parseFailCount = ingestResult.parseFailures.length;
+  const finalDiagnosis: IngestDiagnosis = {
+    ...ingestResult.diagnosis,
+    totalRowsRead: sourceRecordFlow.inputRowCount,
+    parseFailCount: ingestResult.parseFailures.length,
+  };
 
   // Write parse quarantine
   if (ingestResult.parseFailures.length > 0) {
@@ -235,6 +315,11 @@ export async function normalizeFile(
     parseQuarantinePath,
     schemaFingerprint: ingestResult.schemaFingerprint,
     sourceFileHash: ingestResult.sourceFileHash,
+    recordCount: sourceRecordFlow.inputRowCount,
+    columnCount: ingestResult.columns.length,
+    ingestDiagnoses: { [sourcePathKey]: finalDiagnosis },
+    sourceRecordFlows: { [sourcePathKey]: sourceRecordFlow },
+    parentExtractionSummaries: { [sourcePathKey]: parentExtractionSummary },
   };
 }
 
@@ -259,9 +344,14 @@ export async function normalizeFiles(
   let outputColumns: string[] | undefined;
   let lastSchemaFp = '';
   let lastSourceFileHash = '';
+  let maxColumnCount = 0;
+  const ingestDiagnoses: Record<string, IngestDiagnosis> = {};
+  const sourceRecordFlows: Record<string, SourceRecordFlow> = {};
+  const parentExtractionSummaries: Record<string, ParentExtractionSummary> = {};
 
   for (let fileIdx = 0; fileIdx < filePaths.length; fileIdx++) {
     const { path: filePath, label } = filePaths[fileIdx];
+    const sourcePathKey = resolve(filePath);
     const sourceLabel = label ?? filePath;
     const context: NormalizeContext = contexts?.[fileIdx] ?? { sourceBatchId: '', importRunId: '', sourceKey: sourceLabel };
 
@@ -271,22 +361,37 @@ export async function normalizeFiles(
       : findBestMapping(filePath, ingestResult.schemaFingerprint, config);
     lastSchemaFp = ingestResult.schemaFingerprint;
     lastSourceFileHash = ingestResult.sourceFileHash;
+    maxColumnCount = Math.max(maxColumnCount, ingestResult.columns.length);
+    const sourceRecordFlow = emptySourceRecordFlow();
+    const parentExtractionSummary = emptyParentExtractionSummary();
 
     for await (const chunk of ingestResult.records) {
       const normalized: RawRecord[] = [];
       const quarantine: RawRecord[] = [];
 
       for (const record of chunk) {
-        const mapped = mapping ? applyColumnMapping(record, mapping) : record;
+        sourceRecordFlow.inputRowCount++;
+        const parentExtraction = extractParentFromMixedRecord(record, context.sourceRouting);
+        accumulateParentExtraction(parentExtractionSummary, parentExtraction);
+        const mappedBase = mapping ? applyColumnMapping(record, mapping) : { ...record };
+        const mapped = { ...parentExtraction.extractedCanonicalFields, ...mappedBase };
 
         // Add source file tag for backward compat
         mapped._source_file = sourceLabel;
 
         if (!outputColumns) {
-          outputColumns = ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', ...Object.keys(mapped).filter((k) => k !== '_source_file' && !k.startsWith('_'))];
+          outputColumns = ['_source_file', '_source_key', '_source_batch_id', '_import_run_id', '_schema_fingerprint', '_row_fingerprint', '_source_record_key', '_source_record_key_method', '_entity_match_key', '_structural_fingerprint', '_structural_fingerprint_full', '_structural_fingerprint_mainline', '_merge_eligibility', '_review_reason', '_semantic_owner', '_parent_extraction_classification', '_parent_extraction_reason', '_parent_extraction_used_columns', '_final_disposition', '_final_disposition_reason', ...Object.keys(mapped).filter((k) => k !== '_source_file' && !k.startsWith('_'))];
         }
 
         const norm = normalizeRecord(mapped, config);
+        const rowHasChildData = hasChildData(record, context.sourceRouting);
+        if (rowHasChildData) sourceRecordFlow.rowsWithChildData++;
+        if (parentExtraction.classification === 'parent_candidate') sourceRecordFlow.parentCandidateRowCount++;
+        if (parentExtraction.classification === 'ambiguous_parent') sourceRecordFlow.ambiguousParentRowCount++;
+        if (parentExtraction.classification === 'child_continuation') sourceRecordFlow.childOnlyContinuationRowCount++;
+        if (rowHasChildData && parentExtraction.classification !== 'child_continuation') {
+          sourceRecordFlow.mixedParentChildRowCount++;
+        }
 
         // Add lineage
         norm['_source_file'] = sourceLabel;
@@ -294,7 +399,19 @@ export async function normalizeFiles(
         norm['_source_batch_id'] = context.sourceBatchId;
         norm['_import_run_id'] = context.importRunId;
         norm['_schema_fingerprint'] = ingestResult.schemaFingerprint;
-        const identity = buildRecordIdentity(norm, { sourceFile: filePath, mode: context.sourceMode ?? 'archive' }, config);
+        norm['_parent_extraction_classification'] = parentExtraction.classification;
+        norm['_parent_extraction_reason'] = parentExtraction.reason;
+        norm['_parent_extraction_used_columns'] = parentExtraction.usedSourceColumns.join('|');
+        const identity = buildRecordIdentity(
+          norm,
+          {
+            sourceFile: filePath,
+            mode: context.sourceMode ?? 'archive',
+            sourceRouting: context.sourceRouting,
+            parentExtraction,
+          },
+          config,
+        );
         norm['_source_record_key'] = identity.sourceRecordKey;
         norm['_source_record_key_method'] = identity.sourceRecordKeyMethod;
         norm['_entity_match_key'] = identity.entityMatchKey;
@@ -304,13 +421,26 @@ export async function normalizeFiles(
         norm['_merge_eligibility'] = identity.mergeEligibility;
         norm['_review_reason'] = identity.reviewReason ?? '';
         norm['_semantic_owner'] = identity.semanticOwner ?? '';
+        norm['_final_disposition'] = identity.mergeEligibility;
+        norm['_final_disposition_reason'] = identity.mergeEligibility === 'mainline_ready'
+          ? 'eligible_for_mainline_merge'
+          : (identity.reviewReason ?? identity.mergeEligibility);
 
-        const reason = businessQuarantineReason(norm, config);
+        const emptyReason = businessQuarantineReason(norm, config);
+        const reason = parentExtraction.classification === 'child_continuation'
+          ? 'CHILD_CONTINUATION'
+          : parentExtraction.classification === 'ambiguous_parent'
+            ? null
+            : emptyReason;
         if (reason) {
           norm['_quarantine_reason'] = reason;
+          norm['_final_disposition'] = 'quarantine';
+          norm['_final_disposition_reason'] = reason;
           quarantine.push(norm);
+          sourceRecordFlow.quarantineRowCount++;
         } else {
           normalized.push(norm);
+          sourceRecordFlow.normalizedRowCount++;
         }
       }
 
@@ -345,6 +475,14 @@ export async function normalizeFiles(
       }
       totalParseFail += ingestResult.parseFailures.length;
     }
+    sourceRecordFlow.parseFailCount = ingestResult.parseFailures.length;
+    sourceRecordFlows[sourcePathKey] = sourceRecordFlow;
+    parentExtractionSummaries[sourcePathKey] = parentExtractionSummary;
+    ingestDiagnoses[sourcePathKey] = {
+      ...ingestResult.diagnosis,
+      totalRowsRead: sourceRecordFlow.inputRowCount,
+      parseFailCount: ingestResult.parseFailures.length,
+    };
   }
 
   return {
@@ -356,5 +494,10 @@ export async function normalizeFiles(
     parseQuarantinePath,
     schemaFingerprint: lastSchemaFp,
     sourceFileHash: lastSourceFileHash,
+    recordCount: Object.values(sourceRecordFlows).reduce((sum, flow) => sum + flow.inputRowCount, 0),
+    columnCount: maxColumnCount,
+    ingestDiagnoses,
+    sourceRecordFlows,
+    parentExtractionSummaries,
   };
 }

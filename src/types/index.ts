@@ -111,6 +111,124 @@ export interface ReportSummary {
   identityWarningCount?: number;
   sourceBatchCount?: number;
   modes?: string[];
+  sourceRoutingDecisions?: Record<string, SourceRoutingDecision>;
+  sourceRecordFlows?: Record<string, SourceRecordFlow>;
+  parentExtractionSummaries?: Record<string, ParentExtractionSummary>;
+  countReconciliation?: CountReconciliationSummary;
+  handoffBundle?: HandoffBundleSummary;
+  nextActionView?: NextActionView;
+}
+
+export interface SourceRoutingDecision {
+  mode: 'mainline' | 'archive';
+  reasonCode: 'input_mode' | 'diff_key_mode' | 'profile_inference' | 'default_archive';
+  reason: string;
+  matchedProfileId?: string;
+  matchedProfileLabel?: string;
+  matchedProfileConfidence?: 'high' | 'medium' | 'low' | 'none';
+  hasChildColumns: boolean;
+  childColumnCount: number;
+  childColumnNames: string[];
+  mixedParentChildExport: boolean;
+  recommendedRecordFamily?: string;
+}
+
+export interface SourceRecordFlow {
+  inputRowCount: number;
+  normalizedRowCount: number;
+  quarantineRowCount: number;
+  parseFailCount: number;
+  rowsWithChildData: number;
+  parentCandidateRowCount: number;
+  ambiguousParentRowCount: number;
+  childOnlyContinuationRowCount: number;
+  mixedParentChildRowCount: number;
+}
+
+export type ParentExtractionClassification =
+  | 'not_applicable'
+  | 'parent_candidate'
+  | 'ambiguous_parent'
+  | 'child_continuation';
+
+export interface ParentExtractionDecision {
+  classification: ParentExtractionClassification;
+  reasonCode: 'not_mixed' | 'strong_parent_signals' | 'insufficient_parent_signals' | 'child_columns_only';
+  reason: string;
+  extractedCanonicalFields: Record<string, string>;
+  usedSourceColumns: string[];
+}
+
+export interface ParentExtractionSummary {
+  classificationBreakdown: Record<ParentExtractionClassification, number>;
+  reasonBreakdown: Record<string, number>;
+  extractedParentCount: number;
+  ambiguousParentCount: number;
+  childContinuationCount: number;
+}
+
+export type EligibilityStage = 'mainline_ready' | 'review' | 'archive_only' | 'quarantine';
+export type FinalDisposition =
+  | EligibilityStage
+  | 'inserted'
+  | 'updated'
+  | 'unchanged'
+  | 'duplicate';
+
+export interface CountReconciliationSummary {
+  inputRowCount: number;
+  normalizedRowCount: number;
+  quarantineRowCount: number;
+  accountedRowCount: number;
+  unaccountedRowCount: number;
+  parentExtractionBreakdown: Record<ParentExtractionClassification, number>;
+  eligibilityBreakdown: Record<EligibilityStage, number>;
+  finalDispositionBreakdown: Record<FinalDisposition, number>;
+  extractionToEligibility: Record<ParentExtractionClassification, Record<EligibilityStage, number>>;
+  extractionToDisposition: Record<ParentExtractionClassification, Record<FinalDisposition, number>>;
+  eligibilityToDisposition: Record<EligibilityStage, Record<FinalDisposition, number>>;
+  dispositionReasonBreakdown: Record<string, number>;
+  dispositionReasonByFinalDisposition: Record<FinalDisposition, Record<string, number>>;
+}
+
+export interface HandoffArtifactView {
+  file: string;
+  rowCount: number;
+  finalDispositions: FinalDisposition[];
+  finalDispositionBreakdown: Record<FinalDisposition, number>;
+  parentExtractionBuckets: ParentExtractionClassification[];
+}
+
+export interface HandoffBundleSummary {
+  generatedAt: string;
+  projectionOnly: true;
+  sourceArtifacts: {
+    normalized: string;
+    quarantine: string;
+    reconciliation: string;
+  };
+  counts: {
+    opsCoreReady: number;
+    reviewPack: number;
+    quarantinePack: number;
+    total: number;
+  };
+  integrity: {
+    recordCount: number;
+    accountedRowCount: number;
+    unaccountedRowCount: number;
+    matchesReconciliation: boolean;
+  };
+  artifacts: {
+    opsCoreReady: HandoffArtifactView;
+    reviewPack: HandoffArtifactView;
+    quarantinePack: HandoffArtifactView;
+  };
+}
+
+export interface NextActionView {
+  countIntegrity: 'matched';
+  artifacts: HandoffArtifactView[];
 }
 
 // ============================================================
@@ -118,7 +236,7 @@ export interface ReportSummary {
 // ============================================================
 
 export type ParseQuarantineReason = 'DECODE_FAILED' | 'COLUMN_MISALIGNMENT' | 'PARSE_ERROR';
-export type BusinessQuarantineReason = 'BUSINESS_KEY_EMPTY' | 'ALL_COLUMNS_EMPTY';
+export type BusinessQuarantineReason = 'BUSINESS_KEY_EMPTY' | 'ALL_COLUMNS_EMPTY' | 'CHILD_CONTINUATION';
 export type QuarantineReason = ParseQuarantineReason | BusinessQuarantineReason;
 
 export interface ParseFailRecord {
