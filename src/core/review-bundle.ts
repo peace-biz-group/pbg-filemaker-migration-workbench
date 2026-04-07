@@ -21,6 +21,7 @@ import type {
   ReviewStatus,
 } from '../types/review.js';
 import { getRun } from './pipeline-runner.js';
+import { loadMemory, lookupResolution, shouldAutoApply } from './resolution-memory.js';
 
 // --- Hashing ---
 
@@ -53,6 +54,22 @@ function saveMeta(review: ReviewMeta, outputDir: string): void {
   writeFileSync(join(dir, 'review-meta.json'), JSON.stringify(review, null, 2), 'utf-8');
 }
 
+// --- Resolution memory integration ---
+
+export function applyColumnIgnoreResolutions(
+  columns: ColumnReview[],
+  outputDir: string,
+): ColumnReview[] {
+  const memory = loadMemory(outputDir);
+  return columns.map((col) => {
+    const res = lookupResolution('column_ignore', `column:${col.sourceColumn}`, memory);
+    if (res && shouldAutoApply(res) && res.decision === 'unused') {
+      return { ...col, decision: 'unused' as const };
+    }
+    return col;
+  });
+}
+
 // --- CRUD ---
 
 export async function createReview(
@@ -73,8 +90,11 @@ export async function createReview(
   // Profile the file to get column info
   const profile = await profileFile(filePath, config);
 
-  // Generate suggestions
-  const columns = suggestAllColumns(profile.columns, config, filePath);
+  // Generate suggestions, applying any persisted column_ignore resolutions
+  const columns = applyColumnIgnoreResolutions(
+    suggestAllColumns(profile.columns, config, filePath),
+    outputDir,
+  );
 
   // Compute hashes
   const sourceFileHash = computeFileHash(filePath);
