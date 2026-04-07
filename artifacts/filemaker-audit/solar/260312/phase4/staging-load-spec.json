@@ -1,0 +1,65 @@
+{
+  "version": "v0",
+  "generated": "2026-04-06T16:46:08.154Z",
+  "batch": "260312",
+  "domain": "solar",
+  "load_order": [
+    {
+      "order": 1,
+      "entity": "customer",
+      "staging_table": "staging_customer",
+      "primary_staging_file": "customer-staging-v0.csv",
+      "load_source": "260312_顧客_太陽光.csv (マスタ行のみ)",
+      "estimated_rows": 5357,
+      "nullable_policy": "customer_id, raw_source_file, raw_row_origin, source_fingerprint は NOT NULL。他は全て nullable",
+      "rejected_row_policy": "customer_id が空の行は reject → rejected_rows テーブルへ。reject 理由を記録",
+      "rerun_policy": "TRUNCATE staging_customer → 全件再投入。source_fingerprint で同一性を保証",
+      "audit_policy": "raw_source_file + raw_row_origin + source_fingerprint で原本追跡可能。load_timestamp を付与",
+      "dependencies": [],
+      "notes": "deal より先にロード。activity_call の customer_id 参照先"
+    },
+    {
+      "order": 2,
+      "entity": "deal",
+      "staging_table": "staging_deal",
+      "primary_staging_file": "deal-staging-v0.csv",
+      "load_source": "260312_顧客_太陽光.csv (マスタ行のみ)",
+      "estimated_rows": 5357,
+      "nullable_policy": "customer_id, raw_source_file, raw_row_origin, source_fingerprint は NOT NULL。他は全て nullable",
+      "rejected_row_policy": "customer_id が空の行は reject。staging_customer に存在しない customer_id は warning ログ（reject はしない）",
+      "rerun_policy": "TRUNCATE staging_deal → 全件再投入",
+      "audit_policy": "raw_source_file + raw_row_origin + source_fingerprint で原本追跡可能",
+      "dependencies": [
+        "staging_customer"
+      ],
+      "notes": "customer と現時点で 1:1。1:N の可能性は未確定のまま保持"
+    },
+    {
+      "order": 3,
+      "entity": "activity_call",
+      "staging_table": "staging_activity_call",
+      "primary_staging_file": "activity-call-union-candidate.csv",
+      "load_source": [
+        "260312_コール履歴_太陽光.xlsx (source_a: 46572 rows)",
+        "260312_顧客_太陽光.csv ポータル展開行 (source_b: 51150 rows)"
+      ],
+      "estimated_rows": 97722,
+      "nullable_policy": "source_kind, raw_source_file, raw_row_origin, source_fingerprint は NOT NULL。他は全て nullable",
+      "rejected_row_policy": "call_date と content が両方空の行は reject。source_kind が不正な行は reject",
+      "rerun_policy": "TRUNCATE staging_activity_call → 全件再投入。source_fingerprint で同一性を保証",
+      "audit_policy": "source_kind で出元区別。raw_source_file + raw_row_origin で原本追跡",
+      "dependencies": [
+        "staging_customer"
+      ],
+      "notes": "source_a/source_b の merge は staging 投入後に行う。staging では両方保持"
+    }
+  ],
+  "global_policies": {
+    "encoding": "UTF-8 (staging CSV は UTF-8 変換済み。raw は cp932)",
+    "load_strategy": "TRUNCATE + INSERT (idempotent)",
+    "transaction": "entity ごとに1トランザクション。失敗時は該当 entity のみ rollback",
+    "provenance": "全行に raw_source_file, raw_row_origin, source_fingerprint を付与",
+    "load_timestamp": "投入時に _loaded_at TIMESTAMPTZ を自動付与",
+    "schema_version": "v0 (provisional)"
+  }
+}

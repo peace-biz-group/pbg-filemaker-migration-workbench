@@ -24,6 +24,7 @@ export const previewCommand = new Command('preview')
     const ingestOptions: IngestOptions = {
       encoding: (opts.encoding as 'auto' | 'utf8' | 'cp932') ?? 'auto',
       delimiter: (opts.delimiter as 'auto' | ',' | '\t' | ';') ?? 'auto',
+      debugContext: 'cli:preview',
       hasHeader: opts.header !== false,
       skipRows: parseInt(String(opts.skipRows ?? '0'), 10),
       previewRows: parseInt(String(opts.rows ?? '100'), 10),

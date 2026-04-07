@@ -17,6 +17,7 @@ import { writeCsv } from '../io/csv-writer.js';
 import { writeSummaryJson, writeSummaryMarkdown } from '../io/report-writer.js';
 import { ingestFile } from '../io/file-reader.js';
 import { sourceBatchId, logicalSourceKey } from '../ingest/fingerprint.js';
+import type { IngestOptions } from '../ingest/ingest-options.js';
 import { generateMappingSuggestions } from './column-mapper.js';
 import type { WorkbenchConfig } from '../config/schema.js';
 import type {
@@ -31,6 +32,7 @@ import type {
   IngestDiagnosis,
   SourceRoutingDecision,
   SourceRecordFlow,
+  PartOriginalSourceDiagnostics,
 } from '../types/index.js';
 import { buildRunDiffSummaryV1, saveRunDiffSummary } from './run-diff-summary.js';
 import { globMatch } from './column-mapper.js';
@@ -52,6 +54,18 @@ import { parse as parseCsvSync } from 'csv-parse/sync';
 import { stringify as stringifyCsvSync } from 'csv-stringify/sync';
 
 export type RunMode = 'profile' | 'normalize' | 'detect-duplicates' | 'classify' | 'run-all' | 'run-batch';
+
+/** split-run part 実行時: 実入力は part、lookup / routing はこのパス基準 */
+export interface OriginalSourceContext {
+  filePath: string;
+  schemaFingerprint?: string;
+  /** 元ソースの headerApplied（routing の isHeaderless に使用） */
+  originalHeaderApplied?: boolean;
+  /** part ファイルの先頭行が列名か → ingest hasHeader */
+  effectiveHasHeaderForPart?: boolean;
+  headerDecisionResolvedFrom?: 'split_source_ingest' | 'ingest_options_explicit' | 'unknown';
+  originalWeakHeaderDetected?: boolean;
+}
 
 export interface RunMeta {
   id: string;
@@ -95,6 +109,7 @@ export interface RunMeta {
   sourceRouting?: Record<string, SourceRoutingDecision>;
   importRunId?: string;
   nextActionView?: NextActionView;
+  partOriginalSourceDiagnostics?: PartOriginalSourceDiagnostics;
 }
 
 function generateRunId(): string {
@@ -199,9 +214,15 @@ export function deleteRun(outputDir: string, runId: string): boolean {
 }
 
 /** Resolve per-file ingest options: merge global config + per-file override. */
-function resolveFileIngestOptions(filePath: string, config: WorkbenchConfig): Record<string, unknown> {
+function resolveFileIngestOptions(
+  filePath: string,
+  config: WorkbenchConfig,
+  /** config.inputs / per-file ingest の突き合わせに使うパス（省略時は filePath） */
+  lookupPath?: string,
+): Record<string, unknown> {
   const global = config.ingestOptions ?? {};
-  const fileEntry = config.inputs.find(i => resolve(i.path) === resolve(filePath));
+  const key = lookupPath ?? filePath;
+  const fileEntry = config.inputs.find(i => resolve(i.path) === resolve(key));
   const perFile = fileEntry?.ingestOptions ?? {};
   return { ...global, ...perFile };
 }
@@ -269,6 +290,11 @@ export async function executeRun(
     async?: boolean;
     effectiveMapping?: Record<string, string>;
     profileId?: string;
+    ingestOptionsOverride?: IngestOptions;
+    mappingLookupFilePathOverride?: string;
+    /** split-run: part 実体とは別に元ソースで inputs / diffKeys / mapping を解決する */
+    originalSourceContext?: OriginalSourceContext;
+    sourceRoutingOverride?: SourceRoutingDecision;
     duplicateWarningShown?: boolean;
     duplicateOverride?: boolean;
     schemaDriftWarningShown?: boolean;
@@ -318,13 +344,49 @@ export async function executeRun(
       const sourceModes: Record<string, SourceMode> = {};
       const sourceRouting: Record<string, SourceRoutingDecision> = {};
 
+      const originalCtx = options?.originalSourceContext;
+      const mappingLookupPathResolved =
+        options?.mappingLookupFilePathOverride !== undefined
+          ? resolve(options.mappingLookupFilePathOverride)
+          : originalCtx
+            ? resolve(originalCtx.filePath)
+            : undefined;
+
       for (const f of inputFiles) {
         const abs = resolve(f);
-        const ir = await ingestFile(f, resolveFileIngestOptions(f, config), 1);
+        const lookupForConfig = mappingLookupPathResolved ?? abs;
+        const appliedIngestOptions = {
+          ...resolveFileIngestOptions(f, config, lookupForConfig) as IngestOptions,
+          ...(options?.ingestOptionsOverride ?? {}),
+        };
+        if (originalCtx?.effectiveHasHeaderForPart !== undefined) {
+          appliedIngestOptions.hasHeader = originalCtx.effectiveHasHeaderForPart;
+        }
+        const ir = await ingestFile(f, {
+          ...appliedIngestOptions,
+          debugContext: `run:${mode}:prepare`,
+        }, 1);
         // consume one chunk to trigger diagnosis
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         for await (const _chunk of ir.records) { break; }
-        const routing = analyzeSourceRouting(f, ir.columns, config);
+        const lookupPathForRouting = mappingLookupPathResolved ?? abs;
+        let routing: SourceRoutingDecision;
+        if (options?.sourceRoutingOverride) {
+          routing = {
+            ...options.sourceRoutingOverride,
+            lookupUsedSourceName: options.sourceRoutingOverride.lookupUsedSourceName ?? basename(lookupPathForRouting),
+            routingResolvedFrom: 'source_routing_override',
+          };
+        } else {
+          const isHeaderless = originalCtx?.originalHeaderApplied !== undefined
+            ? originalCtx.originalHeaderApplied === false
+            : ir.diagnosis.headerApplied === false;
+          routing = analyzeSourceRouting(f, ir.columns, config, {
+            isHeaderless,
+            matchFilePathOverride: lookupPathForRouting,
+            inputLookupPath: lookupPathForRouting,
+          });
+        }
         sourceModes[abs] = routing.mode;
         sourceRouting[abs] = routing;
         sourceFileHashes[abs] = ir.sourceFileHash;
@@ -348,9 +410,11 @@ export async function executeRun(
       }
 
       const batchId = sourceBatchId(Object.values(sourceFileHashes));
-      const srcKeys = inputFiles.map(f => {
-        const entry = config.inputs.find(i => resolve(i.path) === resolve(f));
-        return entry?.sourceKey ?? basename(f);
+      const srcKeys = inputFiles.map((f) => {
+        const abs = resolve(f);
+        const lookupForKey = mappingLookupPathResolved ?? abs;
+        const entry = config.inputs.find((i) => resolve(i.path) === lookupForKey);
+        return entry?.sourceKey ?? entry?.label ?? basename(lookupForKey);
       });
       const lsk = logicalSourceKey(srcKeys);
 
@@ -360,6 +424,24 @@ export async function executeRun(
 
       meta.sourceBatchId = batchId;
       meta.logicalSourceKey = lsk;
+      if (originalCtx && mappingLookupPathResolved) {
+        const firstAbs = resolve(inputFiles[0]!);
+        const firstRouting = sourceRouting[firstAbs];
+        const partDiag = ingestDiagnoses[firstAbs];
+        const headerAppliedPart = partDiag?.format === 'csv' ? partDiag.headerApplied : undefined;
+        meta.partOriginalSourceDiagnostics = {
+          originalSourceFile: resolve(originalCtx.filePath),
+          originalSourceName: basename(originalCtx.filePath),
+          originalSchemaFingerprint: originalCtx.schemaFingerprint,
+          lookupUsedSourceName: basename(mappingLookupPathResolved),
+          logicalSourceKey: lsk,
+          routingResolvedFrom: firstRouting?.routingResolvedFrom ?? 'unknown',
+          originalHeaderApplied: originalCtx.originalHeaderApplied,
+          effectiveHasHeaderForPart: headerAppliedPart,
+          headerDecisionResolvedFrom: originalCtx.headerDecisionResolvedFrom,
+          originalWeakHeaderDetected: originalCtx.originalWeakHeaderDetected,
+        };
+      }
       meta.sourceFileHashes = sourceFileHashes;
       meta.schemaFingerprints = schemaFingerprints;
       meta.ingestDiagnoses = ingestDiagnoses;
@@ -375,7 +457,8 @@ export async function executeRun(
       const importedAt = new Date().toISOString();
       const sourceBatches = inputFiles.map((f) => {
         const abs = resolve(f);
-        const entry = config.inputs.find(i => resolve(i.path) === resolve(f));
+        const lookupForEntry = mappingLookupPathResolved ?? abs;
+        const entry = config.inputs.find((i) => resolve(i.path) === lookupForEntry);
         const stats = statSync(f);
         return resolveSourceBatch(state, {
           filePath: f,
@@ -404,16 +487,31 @@ export async function executeRun(
 
       // Build contexts
       const effectiveMapping = options?.effectiveMapping;
-      const contexts: NormalizeContext[] = inputFiles.map((f, i) => ({
-        sourceBatchId: batchId,
-        importRunId: runId,
-        sourceKey: srcKeys[i] ?? basename(f),
-        ingestOptions: resolveFileIngestOptions(f, config),
-        sourceMode: sourceModes[resolve(f)] ?? 'archive',
-        sourceRouting: sourceRouting[resolve(f)],
-        // run 単位の実効 mapping（列レビュー回答から生成）
-        effectiveMapping,
-      }));
+      const mappingLookupForNormalizer = mappingLookupPathResolved ?? undefined;
+      const contexts: NormalizeContext[] = inputFiles.map((f, i) => {
+        const abs = resolve(f);
+        const lookupForConfig = mappingLookupPathResolved ?? abs;
+        return {
+          sourceBatchId: batchId,
+          importRunId: runId,
+          sourceKey: srcKeys[i] ?? basename(f),
+          ingestOptions: (() => {
+            const io = {
+              ...resolveFileIngestOptions(f, config, lookupForConfig) as IngestOptions,
+              ...(options?.ingestOptionsOverride ?? {}),
+              debugContext: `run:${mode}:normalize`,
+            };
+            if (originalCtx?.effectiveHasHeaderForPart !== undefined) {
+              io.hasHeader = originalCtx.effectiveHasHeaderForPart;
+            }
+            return io;
+          })(),
+          mappingLookupFilePath: mappingLookupForNormalizer ?? f,
+          sourceMode: sourceModes[abs] ?? 'archive',
+          sourceRouting: options?.sourceRoutingOverride ?? sourceRouting[abs],
+          effectiveMapping,
+        };
+      });
 
       switch (mode) {
         case 'profile':
@@ -469,6 +567,13 @@ export async function executeRun(
         JSON.stringify(meta.sourceRouting ?? sourceRouting, null, 2),
         'utf-8',
       );
+      if (meta.partOriginalSourceDiagnostics) {
+        writeFileSync(
+          join(meta.outputDir, 'part-original-source-diagnostics.json'),
+          JSON.stringify(meta.partOriginalSourceDiagnostics, null, 2),
+          'utf-8',
+        );
+      }
       if (meta.summary?.parentExtractionSummaries) {
         writeFileSync(
           join(meta.outputDir, 'parent-extraction-diagnostics.json'),
@@ -587,8 +692,12 @@ async function runNormalize(files: string[], config: WorkbenchConfig, meta: RunM
   meta.summary.handoffBundle = handoff.handoffBundle;
   meta.summary.nextActionView = handoff.nextActionView;
   meta.nextActionView = handoff.nextActionView;
+  if (meta.partOriginalSourceDiagnostics) {
+    meta.summary.partOriginalSourceDiagnostics = meta.partOriginalSourceDiagnostics;
+  }
   meta.ingestDiagnoses = { ...(meta.ingestDiagnoses ?? {}), ...normResult.ingestDiagnoses };
   writeSummaryJson(config.outputDir, meta.summary);
+  saveMeta(meta);
   emitProgress(runId, 'normalize', '完了', 100);
 }
 
@@ -668,11 +777,15 @@ async function runAll(file: string, config: WorkbenchConfig, meta: RunMeta, runI
     countReconciliation: reconciliation,
     handoffBundle: handoff.handoffBundle,
     nextActionView: handoff.nextActionView,
+    ...(meta.partOriginalSourceDiagnostics
+      ? { partOriginalSourceDiagnostics: meta.partOriginalSourceDiagnostics }
+      : {}),
   };
   meta.nextActionView = handoff.nextActionView;
   meta.summary.identityWarningCount = (meta.summary.identityWarningCount ?? 0) + collisionCount;
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profile);
+  saveMeta(meta);
   emitProgress(runId, 'complete', '完了', 100);
 }
 
@@ -761,11 +874,15 @@ async function runBatch(files: string[], config: WorkbenchConfig, meta: RunMeta,
     countReconciliation: reconciliation,
     handoffBundle: handoff.handoffBundle,
     nextActionView: handoff.nextActionView,
+    ...(meta.partOriginalSourceDiagnostics
+      ? { partOriginalSourceDiagnostics: meta.partOriginalSourceDiagnostics }
+      : {}),
   };
   meta.nextActionView = handoff.nextActionView;
   meta.summary.identityWarningCount = (meta.summary.identityWarningCount ?? 0) + collisionCount;
   writeSummaryJson(config.outputDir, meta.summary);
   writeSummaryMarkdown(config.outputDir, meta.summary, profiles[0]);
+  saveMeta(meta);
   emitProgress(runId, 'complete', '完了', 100);
 }
 

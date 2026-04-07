@@ -348,34 +348,44 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     const limit = Math.min(parseInt(String(req.query.limit ?? '100'), 10), 500);
 
     try {
-      const { createReadStream } = await import('node:fs');
-      const { parse: csvParse } = await import('csv-parse');
+      const { ingestFile } = await import('../io/file-reader.js');
+      const absPath = resolve(filePath);
+      const savedDiagnosis = run.ingestDiagnoses?.[absPath];
+      const ingestOptions: IngestOptions = savedDiagnosis && savedDiagnosis.format === 'csv'
+        ? {
+          encoding: savedDiagnosis.appliedEncoding,
+          delimiter: savedDiagnosis.appliedDelimiter,
+          csvQuoteMode: savedDiagnosis.requestedQuoteMode,
+          debugContext: 'ui:/api/runs/:id/source-data',
+          hasHeader: savedDiagnosis.headerApplied,
+        }
+        : {
+          debugContext: 'ui:/api/runs/:id/source-data',
+        };
+      const ir = await ingestFile(filePath, ingestOptions, Math.max(1, Math.min(limit, 500)));
 
-      // Count total
       let totalCount = 0;
-      const countStream = createReadStream(filePath).pipe(csvParse({ columns: true, skip_empty_lines: true, bom: true }));
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      for await (const _row of countStream) totalCount++;
-
-      // Read slice
       const rows: Record<string, string>[] = [];
-      let columns: string[] = [];
-
-      const readStream = createReadStream(filePath).pipe(
-        csvParse({
-          columns: true,
-          skip_empty_lines: true,
-          bom: true,
-          from: offset + 1,
-          to: offset + limit,
-        })
-      );
-      for await (const row of readStream) {
-        if (columns.length === 0) columns = Object.keys(row as Record<string, string>);
-        rows.push(row as Record<string, string>);
+      for await (const chunk of ir.records) {
+        for (const row of chunk) {
+          if (totalCount >= offset && rows.length < limit) {
+            rows.push(Object.fromEntries(
+              ir.columns.map((column) => [column, row[column] ?? '']),
+            ) as Record<string, string>);
+          }
+          totalCount++;
+        }
       }
 
-      res.json({ columns, totalCount, offset, limit, rows });
+      res.json({
+        columns: ir.columns,
+        totalCount,
+        offset,
+        limit,
+        rows,
+        diagnosis: ir.diagnosis,
+        parseFailures: ir.parseFailures,
+      });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : 'Read failed' });
     }
@@ -438,6 +448,8 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     const ingestOptions: IngestOptions = {
       encoding: (req.query.encoding as IngestOptions['encoding']) ?? 'auto',
       delimiter: (req.query.delimiter as IngestOptions['delimiter']) ?? 'auto',
+      csvQuoteMode: (req.query.csvQuoteMode as IngestOptions['csvQuoteMode']) ?? 'auto',
+      debugContext: 'ui:/api/preview',
       hasHeader: req.query.hasHeader !== 'false',
       previewRows: req.query.rows ? parseInt(String(req.query.rows), 10) : 100,
     };
@@ -516,10 +528,17 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
       // Parse optional encoding/hasHeader overrides
       const encoding = (req.body.encoding as IngestOptions['encoding']) ?? 'auto';
+      const csvQuoteMode = (req.body.csvQuoteMode as IngestOptions['csvQuoteMode']) ?? 'auto';
       const hasHeader = req.body.hasHeader !== 'false';
 
       const { ingestFile } = await import('../io/file-reader.js');
-      const ir = await ingestFile(dest, { encoding, hasHeader, previewRows: 10 }, 5000);
+      const ir = await ingestFile(dest, {
+        encoding,
+        csvQuoteMode,
+        debugContext: 'ui:/api/upload-identify',
+        hasHeader,
+        previewRows: 10,
+      }, 5000);
       const sampleRows: Record<string, string>[] = [];
       for await (const chunk of ir.records) {
         for (const row of chunk) {

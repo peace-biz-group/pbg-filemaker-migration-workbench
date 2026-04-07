@@ -1,0 +1,4 @@
+review_bucket,total_call_rows,unique_phone_numbers,date_range,top_phone_1,top_phone_2,top_phone_3,suggested_batch_action,batch_note
+no_match,608,316,2020-12-28 ~ 2026-03-12,0000000001 (17件),0000000000 (13件),0909426000 (10件),investigate_or_defer,顧客マスタに電話番号が未登録。新規顧客か番号変更か判断が必要。staging 投入時は matched_customer_id=NULL のまま保持
+family_shared_phone,1851,74,2021-01-28 ~ 2026-03-10,0929578555 (108件),09084157711 (105件),0928113622 (95件),content_based_batch_match,同一住所の家族。コール内容に名前が出ていれば自動紐付け可能な場合あり。出ていなければ fill-forward ID を採用
+unclear,210,7,2021-05-25 ~ 2025-02-07,09022725454 (65件),09036080600 (45件),0794266611 (37件),individual_review,パターンが不明。個別に確認が必要

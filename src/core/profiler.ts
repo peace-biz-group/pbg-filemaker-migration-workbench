@@ -105,6 +105,9 @@ export async function profileFile(
         }
       }
     }
+  }, {
+    ...(config.ingestOptions ?? {}),
+    debugContext: 'core:profileFile',
   });
 
   const columns: ColumnProfile[] = [];

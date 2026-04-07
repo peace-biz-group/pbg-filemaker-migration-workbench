@@ -93,6 +93,33 @@ npx tsx src/cli/index.ts run-batch --config workbench.config.json
 
 出力: 全ファイルをマージした `normalized.csv`, `duplicates.csv`（クロスファイル重複含む）, `classified.csv`, レポート + `source-batches.json`, `import-run.json`, `merge-summary.json`
 
+### split — 巨大 CSV の安全分割
+
+```bash
+npx tsx src/cli/index.ts split <file> --rows 500000 [--config workbench.config.json]
+```
+
+出力: `part-0001.csv` 形式の分割ファイル群 + `split-manifest.json`
+
+### split-run — part 001 実行と resume
+
+```bash
+# 1. 分割して part 001 だけ実行
+npx tsx src/cli/index.ts split-run <file> --mode normalize --rows 500000 [--config workbench.config.json]
+
+# 2. part 001 を確認後、manifest だけ指定して resume
+npx tsx src/cli/index.ts split-run --resume-from-manifest <split-manifest.json> [--config workbench.config.json]
+
+# 3. 候補が複数あるときだけ、確認済みの run を手動指定して resume
+npx tsx src/cli/index.ts split-run --manifest <split-manifest.json> --reuse-run <part1-run-id> [--config workbench.config.json]
+```
+
+`split-manifest.json` には `part 001` の初回 `runId`、`firstPartPath`、`schemaFingerprint`、最後に採用した reusable `runId` を保持します。
+
+通常運用では `--resume-from-manifest` だけで再開できます。`profileId` または `effectiveMapping` を持つ run が 1 つに特定できない場合だけ fail-closed で停止し、候補 `runId` を表示します。
+
+出力: `split-manifest.json`, 各 part の個別 run, `split-run-summary.json`, `split-run-summary.md`
+
 ## 設定ファイル
 
 `workbench.config.sample.json` をコピーして編集してください。

@@ -8,6 +8,8 @@ import { classifyCommand } from './commands/classify.js';
 import { runAllCommand } from './commands/run-all.js';
 import { runBatchCommand } from './commands/run-batch.js';
 import { previewCommand } from './commands/preview.js';
+import { splitCommand } from './commands/split.js';
+import { splitRunCommand } from './commands/split-run.js';
 
 const program = new Command();
 
@@ -23,5 +25,7 @@ program.addCommand(classifyCommand);
 program.addCommand(runAllCommand);
 program.addCommand(runBatchCommand);
 program.addCommand(previewCommand);
+program.addCommand(splitCommand);
+program.addCommand(splitRunCommand);
 
 program.parse();

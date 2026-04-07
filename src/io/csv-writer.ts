@@ -14,14 +14,16 @@ export async function writeCsv(
   filePath: string,
   records: RawRecord[],
   columns?: string[],
+  options?: { includeHeader?: boolean },
 ): Promise<void> {
+  const includeHeader = options?.includeHeader !== false;
+
   if (records.length === 0) {
-    // Write empty file with headers only
     return new Promise<void>((resolve, reject) => {
       const ws = createWriteStream(filePath);
       ws.on('error', reject);
       ws.on('finish', resolve);
-      if (columns) {
+      if (columns && includeHeader) {
         ws.write(columns.join(',') + '\n');
       }
       ws.end();
@@ -32,7 +34,7 @@ export async function writeCsv(
 
   return new Promise((resolve, reject) => {
     const ws = createWriteStream(filePath);
-    const stringifier = stringify({ header: true, columns: cols });
+    const stringifier = stringify({ header: includeHeader, columns: cols });
     stringifier.pipe(ws);
     stringifier.on('error', reject);
     ws.on('error', reject);

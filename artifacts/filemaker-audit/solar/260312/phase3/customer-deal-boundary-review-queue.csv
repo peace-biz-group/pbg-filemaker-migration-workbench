@@ -1,0 +1,16 @@
+source_column,current_entity,recommended_entity,confidence,rationale,action
+契約者,deal,deal,high,契約者は案件ごとに異なりうる（家族名義等）。契約者との続柄が存在し deal 単位の属性。customer に移すと 1:N 案件時に破綻,keep
+申込者,deal,deal,high,申込は案件単位の行為。同じ顧客が別案件で別人が申し込む可能性あり,keep
+設置店名,deal,deal,medium,設置店は案件ごとに異なる。将来的に entity 化（店舗マスタ）候補だが、現段階では deal に保持,keep
+販売店,deal,deal,medium,販売代理店は案件ごとに異なる。設置店名と同様、entity 化候補だが現段階は deal に保持,keep
+商流,deal,deal,high,販売ルート/チャネルは案件単位。同一顧客の別案件で商流が異なる可能性あり,keep
+ステータス,deal,deal,high,完了/キャンセル/対応中 等は明確に案件ライフサイクルの状態。顧客属性ではない,keep
+審査依頼日,deal,deal,high,信販審査は案件ごとのファイナンス手続き。審査結果・審査信販も同様,keep
+審査結果,deal,deal,high,信販審査結果は案件単位。可決/否決/審査不可 等,keep
+工事日,deal,deal,high,工事スケジュールは案件（太陽光設置）ごと。工事完了日、完工報告も同様,keep
+入金日,deal,deal,high,入金は案件の支払い。入金日② は分割払い2回目と推定,keep
+電番【検索用】,deal (Phase 2),customer,high,電話番号のハイフンなし正規化版。fill rate 10.1% = マスタ行のみ。customer.phone の検索用バリアント,move
+ｱﾎﾟ担当,deal,deal,medium,アポイント担当者は案件の営業プロセスに属する。将来的に activity 分離候補だが現状は deal に保持,keep
+営業担当,deal,deal,medium,営業担当は案件割り当て。顧客に紐づく場合もあるが、案件ごとに変わりうる,keep
+契約者との続柄,deal,deal,high,契約者が deal に属するため、その続柄も deal。14 unique values,keep
+使用者との続柄,deal,deal,medium,設置場所の使用者との関係。deal（設置案件）単位の情報,keep

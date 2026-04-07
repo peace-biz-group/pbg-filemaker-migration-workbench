@@ -1,0 +1,17 @@
+status_value,count,percentage,sample_customer_ids,normalized_stage,stage_confidence,requires_hearing
+キャンセル,3999,74.6%,RC0L002;RC0L003;RC0L004,cancelled,high,
+完了,1198,22.4%,RC0L001;RC0L007;RC0L008,completed,high,
+再訪問調整中,35,0.7%,RC4L015;RC5E067;RC5E071,unresolved,low,業務意味を確認
+FIT許可待ち,34,0.6%,RC3C006;RC5B092;RC5E043,waiting_fit_approval,high,
+回収保留,19,0.4%,RC5F010;RC5H056;RC5K033,unresolved,low,業務意味を確認
+工事待ち,16,0.3%,RC5E074;RC5J031;RC5J069,waiting_construction,high,
+対応中,15,0.3%,RC1F012;RC1L033;RC2C001,in_progress,medium,具体的にどの段階か要確認
+見積待ち,10,0.2%,RC5G001;RC5G058;RC5L042,waiting_estimate,high,
+現調待ち,8,0.1%,RC5J068;RC6A020;RC6A022,unresolved,low,業務意味を確認
+書類待ち,7,0.1%,RC4A015;RC5J050;RC5K022,waiting_documents,medium,どの書類を待っているか
+連系待ち,3,0.1%,RC4F048;RC5B056;RC5J034,waiting_grid_connection,high,
+工事日調整中,3,0.1%,RC5J012;RC5J041;RC5L018,unresolved,low,業務意味を確認
+現調申込,3,0.1%,RC5J058;RC6B032;RC6C015,unresolved,low,業務意味を確認
+発注待ち,3,0.1%,RC5L010;RC5L028;RC6B011,unresolved,low,業務意味を確認
+現調日調整中,3,0.1%,RC5L037;RC6B034;RC6B040,unresolved,low,業務意味を確認
+電力申請依頼要,1,0.0%,RC6A033,unresolved,low,業務意味を確認

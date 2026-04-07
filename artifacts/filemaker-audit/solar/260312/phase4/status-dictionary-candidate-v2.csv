@@ -1,0 +1,17 @@
+status_value,count,percentage,sample_customer_ids,normalized_stage,stage_confidence,normalized_stage_v0,revised_in_v2,impact_score,priority_rank,hearing_question,requires_hearing
+キャンセル,3999,74.6%,RC0L002;RC0L003;RC0L004,cancelled,high,cancelled,no,3999,1,,
+完了,1198,22.4%,RC0L001;RC0L007;RC0L008,completed,high,completed,no,1198,2,,
+再訪問調整中,35,0.7%,RC4L015;RC5E067;RC5E071,follow_up_scheduling,low,unresolved,yes,105,3,「再訪問調整中」は、初回訪問後に再度の訪問が必要な状態ですか？ どのような場合に使われますか？,業務意味を確認
+回収保留,19,0.4%,RC5F010;RC5H056;RC5K033,payment_on_hold,low,unresolved,yes,57,4,「回収保留」は、工事完了後の代金回収が止まっている状態ですか？ 保留の判断基準は何ですか？,業務意味を確認
+FIT許可待ち,34,0.6%,RC3C006;RC5B092;RC5E043,waiting_fit_approval,high,waiting_fit_approval,no,34,5,,
+対応中,15,0.3%,RC1F012;RC1L033;RC2C001,in_progress,medium,in_progress,no,30,6,「対応中」は具体的にどの段階ですか？ 見積段階？ 工事段階？ それとも包括的な状態ですか？,具体的にどの段階か要確認
+現調待ち,8,0.1%,RC5J068;RC6A020;RC6A022,waiting_site_survey,low,unresolved,yes,24,7,「現調待ち」は「現地調査待ち」の略ですか？ 見積依頼後の段階ですか？,業務意味を確認
+工事待ち,16,0.3%,RC5E074;RC5J031;RC5J069,waiting_construction,high,waiting_construction,no,16,8,,
+書類待ち,7,0.1%,RC4A015;RC5J050;RC5K022,waiting_documents,medium,waiting_documents,no,14,9,「書類待ち」は何の書類を待っていますか？ 契約書？ 補助金申請書類？,どの書類を待っているか
+見積待ち,10,0.2%,RC5G001;RC5G058;RC5L042,waiting_estimate,high,waiting_estimate,no,10,10,,
+工事日調整中,3,0.1%,RC5J012;RC5J041;RC5L018,construction_scheduling,low,unresolved,yes,9,11,「工事日調整中」は契約済みで工事日程を決めている段階ですか？,業務意味を確認
+現調申込,3,0.1%,RC5J058;RC6B032;RC6C015,site_survey_requested,low,unresolved,yes,9,12,「現調申込」は現地調査の依頼を業者に出した段階ですか？ 「現調待ち」との違いは？,業務意味を確認
+発注待ち,3,0.1%,RC5L010;RC5L028;RC6B011,waiting_order,low,unresolved,yes,9,13,「発注待ち」は契約済みで部材の発注を待っている段階ですか？,業務意味を確認
+現調日調整中,3,0.1%,RC5L037;RC6B034;RC6B040,site_survey_scheduling,low,unresolved,yes,9,14,「現調日調整中」は現地調査の日程を調整している段階ですか？ 「現調待ち」「現調申込」との違いは？,業務意味を確認
+連系待ち,3,0.1%,RC4F048;RC5B056;RC5J034,waiting_grid_connection,high,waiting_grid_connection,no,3,15,,
+電力申請依頼要,1,0.0%,RC6A033,power_application_needed,low,unresolved,yes,3,16,「電力申請依頼要」は電力会社への申請がまだ出ていない状態ですか？ 誰が申請しますか？,業務意味を確認

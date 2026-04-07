@@ -8,7 +8,14 @@ function variance(nums: number[]): number {
 }
 
 export function detectDelimiter(sample: string): Delim {
-  const lines = sample.split('\n').slice(0, 5).filter(l => l.trim());
+  const rawLines = sample.split('\n').slice(0, 5);
+  const lines = rawLines
+    .filter((line, index) => {
+      if (!line.trim()) return false;
+      const isLastSampledLine = index === rawLines.length - 1;
+      const sampleEndsMidLine = !sample.endsWith('\n') && !sample.endsWith('\r\n');
+      return !(isLastSampledLine && sampleEndsMidLine);
+    });
   if (!lines.length) return ',';
 
   let best: Delim = ',';

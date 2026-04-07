@@ -1,0 +1,4 @@
+pattern,total_rows,source_a_retained,source_b_retained,overlap_handled,review_dependent_rows,downstream_simplicity
+keep_all,97722,46572,51150,0,0,低 — downstream で重複除去ロジックが必要
+soft_dedupe_by_cross_source_fp,93442,46572,46870,4280,3285,中 — active 行のみ使えば良い。ルーズ一致分はレビュー待ち
+keep_A_primary_and_attach_B_reference,81261,46572,34689,16461,0,高 — A が primary で統一。B は補完のみ。Ops Core 接続がシンプル

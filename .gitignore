@@ -7,3 +7,11 @@ test/output-*/
 .DS_Store
 .worktrees/
 _worktrees/
+.aidesigner/*
+!.aidesigner/.gitkeep
+.agents/
+.claude/
+.codex/
+.cursor/
+.mcp.json
+workbench.config.json

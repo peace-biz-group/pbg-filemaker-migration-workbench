@@ -40,13 +40,13 @@ describe('upload filename / csv parse error handling', () => {
     expect(body.filename).toBe('太陽光顧客管理.csv');
   });
 
-  it('CSV parse error は現場向けメッセージで返す', async () => {
+  it('quote 崩れ CSV は fallback で読み、診断に最終 mode を残す', async () => {
     const malformed = join(dir, 'bad.csv');
     writeFileSync(malformed, 'name,comment\n"abc,"bad"\n');
     const res = await fetch(`${baseUrl}/api/preview?file=${encodeURIComponent(malformed)}`);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.parseErrorHelp).toBeTruthy();
-    expect(body.parseErrorHelp.message).toContain('このCSV');
+    expect(body.parseErrorHelp).toBeNull();
+    expect(body.diagnosis.appliedQuoteMode).toBe('literal');
   });
 });

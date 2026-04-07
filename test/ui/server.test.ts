@@ -23,6 +23,13 @@ function createTempXlsx(rows: (string | number)[][]): string {
   return filePath;
 }
 
+function createTempCsv(contents: string, name = 'sample.csv'): string {
+  const dir = mkdtempSync(join(tmpdir(), 'ui-server-csv-'));
+  const filePath = join(dir, name);
+  writeFileSync(filePath, contents, 'utf8');
+  return filePath;
+}
+
 let server: Server;
 let baseUrl: string;
 
@@ -138,6 +145,31 @@ describe('UI Server API', () => {
     expect(data.columns).toBeDefined();
     expect(data.rows.length).toBeLessThanOrEqual(5);
     expect(data.totalCount).toBeGreaterThan(0);
+  });
+
+  it('GET /api/runs/:id/source-data survives malformed quote source CSV', async () => {
+    const malformedCsv = createTempCsv(
+      'name,comment\n"abc,"bad"\n',
+      'malformed-source.csv',
+    );
+
+    const createRes = await fetch(`${baseUrl}/api/runs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mode: 'profile',
+        filePaths: [malformedCsv],
+        configPath: CONFIG_PATH,
+      }),
+    });
+    expect(createRes.status).toBe(200);
+    const created = await createRes.json();
+
+    const res = await fetch(`${baseUrl}/api/runs/${created.id}/source-data?offset=0&limit=5`);
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.rows.length).toBe(1);
+    expect(data.diagnosis.appliedQuoteMode).toBe('literal');
   });
 
   it('GET /api/runs/:id/duplicates returns grouped duplicates', async () => {

@@ -6,7 +6,8 @@ const columnMappingSchema = z.record(z.string(), z.string());
 const ingestOptionsSchema = z.object({
   encoding: z.enum(['auto', 'utf8', 'cp932']).default('auto'),
   delimiter: z.enum(['auto', ',', '\t', ';']).default('auto'),
-  hasHeader: z.boolean().default(true),
+  csvQuoteMode: z.enum(['auto', 'strict', 'relaxed', 'literal']).default('auto'),
+  hasHeader: z.union([z.boolean(), z.literal('auto')]).default('auto'),
   skipRows: z.number().int().min(0).default(0),
   previewRows: z.number().int().min(1).optional(),
 });

@@ -1,3 +1,5 @@
+import type { CsvQuoteMode } from '../ingest/ingest-options.js';
+
 /**
  * Core type definitions for the FileMaker Data Workbench.
  */
@@ -64,6 +66,32 @@ export type ChunkProcessor<T> = (
   chunkIndex: number,
 ) => Promise<T>;
 
+export type SourceRoutingResolvedFrom =
+  | 'source_routing_override'
+  | 'input_mode'
+  | 'diff_key_mode'
+  | 'profile_inference'
+  | 'default_archive';
+
+/** split-run の part 実行など: 実ファイルは part だが lookup / routing は元ソース基準だったことを記録 */
+export interface PartOriginalSourceDiagnostics {
+  originalSourceFile: string;
+  originalSourceName: string;
+  originalSchemaFingerprint?: string;
+  lookupUsedSourceName: string;
+  logicalSourceKey: string;
+  routingResolvedFrom: SourceRoutingResolvedFrom | 'unknown';
+  /** 元ソース ingest でヘッダ行として扱ったか（false = 合成 c0..） */
+  originalHeaderApplied?: boolean;
+  /** part ファイル先頭が列名行か（ingest に渡した hasHeader と一致） */
+  effectiveHasHeaderForPart?: boolean;
+  /** split manifest seed の header 決定経路 */
+  headerDecisionResolvedFrom?: 'split_source_ingest' | 'ingest_options_explicit' | 'unknown';
+  originalWeakHeaderDetected?: boolean;
+}
+
+export type SplitHeaderDecisionResolvedFrom = 'split_source_ingest' | 'ingest_options_explicit';
+
 /** Report summary. */
 export interface ReportSummary {
   generatedAt: string;
@@ -117,6 +145,8 @@ export interface ReportSummary {
   countReconciliation?: CountReconciliationSummary;
   handoffBundle?: HandoffBundleSummary;
   nextActionView?: NextActionView;
+  /** split-run part などで元ソース文脈を記録 */
+  partOriginalSourceDiagnostics?: PartOriginalSourceDiagnostics;
 }
 
 export interface SourceRoutingDecision {
@@ -131,6 +161,9 @@ export interface SourceRoutingDecision {
   childColumnNames: string[];
   mixedParentChildExport: boolean;
   recommendedRecordFamily?: string;
+  /** glob / profile マッチに使ったファイル名（多くは元ソースの basename） */
+  lookupUsedSourceName?: string;
+  routingResolvedFrom?: SourceRoutingResolvedFrom;
 }
 
 export interface SourceRecordFlow {
@@ -255,6 +288,8 @@ export interface CsvIngestDiagnosis {
   appliedEncoding: 'utf8' | 'cp932';
   detectedDelimiter: ',' | '\t' | ';';
   appliedDelimiter: ',' | '\t' | ';';
+  requestedQuoteMode: CsvQuoteMode;
+  appliedQuoteMode: Exclude<CsvQuoteMode, 'auto'>;
   headerApplied: boolean;
   totalRowsRead: number;
   parseFailCount: number;
@@ -386,4 +421,89 @@ export interface RunDiffSummaryV1 {
   classification: DiffClassification;
   classificationLabel: string;
   generatedAt: string;
+}
+
+export interface SplitDiagnosisSummary {
+  appliedEncoding?: 'utf8' | 'cp932';
+  appliedDelimiter?: ',' | '\t' | ';';
+  requestedQuoteMode?: CsvQuoteMode;
+  appliedQuoteMode?: Exclude<CsvQuoteMode, 'auto'>;
+}
+
+export interface SplitPartMeta {
+  partIndex: number;
+  filePath: string;
+  rowCount: number;
+  schemaFingerprint: string;
+  sourceFileHash: string;
+  diagnosis: SplitDiagnosisSummary;
+}
+
+export interface SplitManifest {
+  version: 1;
+  sourceFile: string;
+  generatedAt: string;
+  rowsPerPart: number;
+  totalParts: number;
+  totalRows: number;
+  columns: string[];
+  schemaFingerprint: string;
+  stage: 'split_completed' | 'part1_completed' | 'resume_completed';
+  sourceDiagnosis: SplitDiagnosisSummary;
+  seed: {
+    initialPartRunId?: string;
+    sourceFile: string;
+    schemaFingerprint: string;
+    firstPartPath: string;
+    lastReusableRunId: string | null;
+    /** 元ソース ingest での headerApplied（後方互換: 未定義は true 扱い） */
+    originalHeaderApplied?: boolean;
+    originalHasHeaderRequested?: boolean | 'auto';
+    originalWeakHeaderDetected?: boolean;
+    originalColumns?: string[];
+    /** part 先頭に列名行を書いたか（後方互換: 未定義は true） */
+    partFilesIncludeHeaderRow?: boolean;
+    headerDecisionResolvedFrom?: SplitHeaderDecisionResolvedFrom;
+  };
+  parts: SplitPartMeta[];
+}
+
+export interface SplitRunPartResult {
+  partIndex: number;
+  filePath: string;
+  runId?: string;
+  status: 'completed' | 'failed' | 'skipped';
+  reason?: string;
+  schemaFingerprint: string;
+  normalizedCount?: number;
+  quarantineCount?: number;
+  parseFailCount?: number;
+}
+
+export interface SplitRunSummary {
+  version: 1;
+  mode: 'normalize' | 'run-all';
+  sourceFile: string;
+  splitManifestPath: string;
+  generatedAt: string;
+  stage: 'split_completed' | 'part1_completed' | 'resume_completed' | 'stopped';
+  totalParts: number;
+  completedParts: number;
+  failedParts: number;
+  skippedParts: number;
+  stoppedAtPartIndex?: number;
+  stopReason: string | null;
+  reusedProfileId?: string;
+  reusedEffectiveMapping: boolean;
+  reusedSourceRouting: boolean;
+  reusedFromRunId?: string;
+  reusableRunCandidateIds?: string[];
+  schemaFingerprintMatchedAllParts: boolean;
+  schemaFingerprint: string;
+  partResults: SplitRunPartResult[];
+  totals: {
+    normalizedCount: number;
+    quarantineCount: number;
+    parseFailCount: number;
+  };
 }
