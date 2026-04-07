@@ -1,0 +1,14 @@
+[
+  {
+    "fingerprint": "__stub_260312_customer_master__",
+    "family_id": "customer_master",
+    "certainty": "high",
+    "confirmed_at": null,
+    "column_count": 0,
+    "encoding": "cp932",
+    "has_header": true,
+    "sample_filename": "260312_顧客_太陽光.csv",
+    "matched_template_id": null,
+    "notes": "stub — 本番 fingerprint は computeFileShapeFingerprint で実ファイルから計算して置き換えること"
+  }
+]
