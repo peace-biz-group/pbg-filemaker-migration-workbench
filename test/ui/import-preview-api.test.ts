@@ -40,9 +40,11 @@ describe('POST /api/import-preview', () => {
     const data = await res.json() as Record<string, unknown>;
     expect(data).toHaveProperty('autoApplyResult');
     expect(data).toHaveProperty('columnSamples');
-    expect(data).toHaveProperty('sampledRows');
+    expect(data).toHaveProperty('totalRows');
+    expect(data).toHaveProperty('isSampled');
     expect(data).toHaveProperty('fileName');
-    expect(data.sampledRows).toBe(3);
+    expect(data.totalRows).toBe(3);
+    expect(data.isSampled).toBe(false);
     expect(data.fileName).toBe('test.csv');
 
     const samples = data.columnSamples as Record<string, { nonEmptyCount: number; topValues: { value: string; count: number }[] }>;

@@ -4,6 +4,14 @@
  */
 
 const $ = (sel) => document.querySelector(sel);
+
+// XLSX 大容量ガード
+const XLSX_WARN_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+
+function _isLargeXlsx(file) {
+  return file.name.toLowerCase().endsWith('.xlsx') && file.size > XLSX_WARN_SIZE_BYTES;
+}
+
 const app = $('#app');
 
 // --- Labels cache ---
@@ -668,6 +676,11 @@ function addFiles(fileList) {
 function renderFilePreview() {
   const container = $('#file-preview');
   if (!container) return;
+
+  // Always clean up the warning, even when the list is empty
+  const existingWarn = container.parentElement ? container.parentElement.querySelector('#new-xlsx-warn') : null;
+  if (existingWarn) existingWarn.remove();
+
   if (uploadedFiles.length === 0) {
     container.innerHTML = '';
     return;
@@ -683,6 +696,21 @@ function renderFilePreview() {
       renderFilePreview();
     });
   });
+
+  // XLSX 大容量ガード（複数ファイルのうち1つでも該当すればまとめて警告）
+  if (uploadedFiles.some(f => _isLargeXlsx(f))) {
+    const warn = document.createElement('div');
+    warn.id = 'new-xlsx-warn';
+    warn.style.cssText = 'background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 14px;margin-top:8px;font-size:12px';
+    warn.innerHTML = `
+      <div style="font-weight:700;color:#92400e;margin-bottom:4px">⚠ 大きい XLSX ファイルが含まれています</div>
+      <p style="color:#78350f;margin:0">
+        XLSX は列の定義確認用です。本処理は CSV（UTF-8 または CP932）でお願いします。<br>
+        FileMaker: ファイル → レコードのエクスポート → コンマ区切り(.csv) → Unicode (UTF-8) を推奨
+      </p>
+    `;
+    container.parentElement.appendChild(warn);
+  }
 }
 
 function formatSize(bytes) {
@@ -2337,6 +2365,37 @@ async function renderImportPage() {
 }
 
 async function _importProcessFile(file) {
+  // XLSX 大容量ガード
+  if (_isLargeXlsx(file)) {
+    const s1 = document.getElementById('import-s1');
+    if (!s1) return;
+    const proceed = await new Promise((resolve) => {
+      const existingWarn = document.getElementById('import-xlsx-warn');
+      if (existingWarn) existingWarn.remove();
+      const warn = document.createElement('div');
+      warn.id = 'import-xlsx-warn';
+      warn.style.cssText = 'background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 14px;margin-top:10px;font-size:12px';
+      warn.innerHTML = `
+        <div style="font-weight:700;color:#92400e;margin-bottom:6px">⚠ このファイルは大きすぎる可能性があります</div>
+        <p style="color:#78350f;margin-bottom:8px">
+          XLSX は列の定義確認用です。本処理は CSV（UTF-8 または CP932）でお願いします。<br>
+          このままでは処理途中でメモリ不足になる場合があります。<br><br>
+          FileMaker から CSV で出力する手順:<br>
+          　ファイル → レコードのエクスポート → 「コンマ区切り(.csv)」→ 文字コード: Unicode (UTF-8) を推奨<br>
+          　UTF-8 で文字化けが出る場合は「日本語 (Shift-JIS)」を選択してください。
+        </p>
+        <div style="display:flex;gap:8px">
+          <button id="import-xlsx-continue" class="btn btn-primary" style="font-size:12px">このまま続ける</button>
+          <button id="import-xlsx-cancel" class="btn" style="font-size:12px">キャンセル</button>
+        </div>
+      `;
+      s1.appendChild(warn);
+      document.getElementById('import-xlsx-continue').onclick = () => { warn.remove(); resolve(true); };
+      document.getElementById('import-xlsx-cancel').onclick  = () => { warn.remove(); resolve(false); };
+    });
+    if (!proceed) return;
+  }
+
   const s2 = document.getElementById('import-s2');
   s2.style.display = '';
   s2.innerHTML = '<div class="loading">判定中...</div>';
@@ -2402,7 +2461,7 @@ function _importRenderS2(result) {
         <div style="font-size:10px;color:#9ca3af">列</div>
       </div>
     </div>
-    <p style="font-size:11px;color:#6b7280">${escapeHtml(result.fileName)}（${escapeHtml(result.detectedEncoding)}）— サンプル ${result.sampledRows.toLocaleString('ja-JP')} 件</p>
+    <p style="font-size:11px;color:#6b7280">${escapeHtml(result.fileName)}（${escapeHtml(result.detectedEncoding)}）— ${result.totalRows.toLocaleString('ja-JP')} 件${result.isSampled ? '<span style="color:#d97706"> ※最初の10万件のサンプル（全件未計測）</span>' : ''}</p>
   `;
 }
 
@@ -2494,7 +2553,7 @@ function _importRefreshRightPane() {
   pane.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
       <div style="font-weight:700;font-size:16px">${escapeHtml(col)}</div>
-      <span style="font-size:11px;color:#9ca3af;padding-top:3px">値あり: ${sample.nonEmptyCount.toLocaleString('ja-JP')}件（サンプル${_importResult.sampledRows.toLocaleString('ja-JP')}件中）</span>
+      <span style="font-size:11px;color:#9ca3af;padding-top:3px">値あり: ${sample.nonEmptyCount.toLocaleString('ja-JP')}件（${_importResult.isSampled ? 'サンプル' : '全'}${_importResult.totalRows.toLocaleString('ja-JP')}件中）</span>
     </div>
     <p style="font-size:11px;color:#6b7280;margin-bottom:12px">この列には何が入っているか確認して、意味を入力してください。</p>
 
