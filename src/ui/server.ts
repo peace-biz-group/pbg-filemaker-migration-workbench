@@ -34,8 +34,11 @@ import { scanForMojibake } from '../ingest/mojibake-detector.js';
 import {
   createReview, listReviews, getReview, updateReviewColumns,
   updateReviewSummary, deleteReview as deleteReviewBundle,
-  getReviewOutputFiles, generateBundle,
+  getReviewOutputFiles, generateBundle, computeSchemaFingerprint,
 } from '../core/review-bundle.js';
+import { loadMemory, addResolution, saveMemory } from '../core/resolution-memory.js';
+import { runAutoApplyPreview } from '../core/auto-apply-orchestrator.js';
+import type { ResolutionRecord } from '../core/resolution-memory.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 const VALID_MODES: RunMode[] = ['profile', 'normalize', 'detect-duplicates', 'classify', 'run-all', 'run-batch'];
@@ -935,6 +938,43 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       if (existsSync(join(cwd, c))) configs.push(c);
     }
     res.json(configs);
+  });
+
+  // --- API: Auto-apply preview ---
+  app.post('/api/auto-apply-preview', (req, res) => {
+    const { columns, encoding, hasHeader } = req.body as {
+      columns: unknown;
+      encoding?: string;
+      hasHeader?: boolean;
+    };
+    if (!Array.isArray(columns)) {
+      res.status(400).json({ error: 'columns は配列で指定してください' });
+      return;
+    }
+    const schemaFP = computeSchemaFingerprint(columns as string[]);
+    const result = runAutoApplyPreview(
+      columns as string[],
+      encoding ?? 'cp932',
+      hasHeader ?? true,
+      schemaFP,
+      baseOutputDir,
+    );
+    res.json(result);
+  });
+
+  // --- API: Save resolution record ---
+  app.post('/api/decisions/resolutions', (req, res) => {
+    const record = req.body as Partial<ResolutionRecord>;
+    if (!record.resolution_id || !record.resolution_type || !record.context_key) {
+      res
+        .status(400)
+        .json({ error: 'resolution_id, resolution_type, context_key は必須です' });
+      return;
+    }
+    let memory = loadMemory(baseOutputDir);
+    memory = addResolution(record as ResolutionRecord, memory);
+    saveMemory(memory, baseOutputDir);
+    res.json({ ok: true, resolutionId: record.resolution_id });
   });
 
   return app;
