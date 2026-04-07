@@ -99,12 +99,17 @@ beforeEach(async () => {
   }
   saveFamilyRegistry(registry, outputDir);
 
+  // NOTE: family registry uses computeFileShapeFingerprint (sorted-comma + encoding + hasHeader).
+  // MappingTemplate seeding requires ir.schemaFingerprint (sorted-pipe, from src/ingest/fingerprint.ts).
+  // These are different algorithms — seed each registry with the correct fingerprint variant.
+
   // サーバー起動
   const expressApp = createApp(outputDir);
   await new Promise<void>((resolve) => {
     server = expressApp.listen(0, () => {
-      const addr = server.address() as { port: number };
-      baseUrl = `http://localhost:${addr.port}`;
+      const addr = server.address();
+      const port = typeof addr === 'object' && addr ? addr.port : 0;
+      baseUrl = `http://localhost:${port}`;
       resolve();
     });
   });
