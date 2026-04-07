@@ -3,6 +3,12 @@ import type { WorkbenchConfig } from '../config/schema.js';
 import { globMatch } from './column-mapper.js';
 import { loadProfiles, matchProfile } from '../file-profiles/index.js';
 import type { SourceRoutingDecision, SourceRoutingResolvedFrom } from '../types/index.js';
+import {
+  loadRegistry as loadFamilyRegistry,
+  lookupFingerprint,
+  detectFamily,
+  computeFileShapeFingerprint,
+} from './family-registry.js';
 
 const CUSTOMER_SIGNAL_PATTERNS = [
   /顧客/i,
@@ -129,4 +135,20 @@ export function analyzeSourceRouting(
     lookupUsedSourceName,
     'default_archive',
   );
+}
+
+export function enrichRoutingDecisionWithFamily(
+  columns: string[],
+  encoding: string,
+  hasHeader: boolean,
+  outputDir: string,
+): { familyId: string; certainty: string } {
+  const fp = computeFileShapeFingerprint(columns, encoding, hasHeader);
+  const registry = loadFamilyRegistry(outputDir);
+  const known = lookupFingerprint(fp, registry);
+  if (known) {
+    return { familyId: known.family_id, certainty: known.certainty };
+  }
+  const detected = detectFamily(columns, registry);
+  return { familyId: detected.familyId, certainty: detected.certainty };
 }
