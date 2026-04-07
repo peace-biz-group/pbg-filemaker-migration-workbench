@@ -106,4 +106,27 @@ describe('POST /api/decisions/resolutions', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('returns 400 when resolution_type is not in the valid list', async () => {
+    const record = {
+      resolution_id: 'test_res_invalid',
+      resolution_type: 'invalid_type',
+      context_key: 'column:備考',
+      family_id: null,
+      decision: 'unused',
+      decision_detail: {},
+      certainty: 'confirmed',
+      scope: 'global',
+      decided_at: new Date().toISOString(),
+      decided_by: 'human',
+      auto_apply_condition: 'exact_match:column_name',
+      source_batch_ids: [],
+    };
+    const res = await fetch(`${baseUrl}/api/decisions/resolutions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+    expect(res.status).toBe(400);
+  });
 });
