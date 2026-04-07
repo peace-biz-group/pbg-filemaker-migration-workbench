@@ -786,13 +786,43 @@
         "decided_at": "2026-04-07T00:00:00Z",
         "decided_by": "auto",
         "notes": "設置場所の名義人氏名。5316/5357 非空。"
+      },
+      {
+        "source_col": "設置kw",
+        "canonical_field": "installation_kw",
+        "inferred_type": "decimal",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "太陽光パネル設置容量 (kW)。値例: 7.24, 5.3, 6.625。1483/52623 非空。全件半角数値。"
+      },
+      {
+        "source_col": "枚数",
+        "canonical_field": "panel_count",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "太陽光パネル枚数。値例: 20, 25, 22。5353/52623 非空。全件半角整数。"
+      },
+      {
+        "source_col": "築年数",
+        "canonical_field": "building_age_years",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "建物築年数。値例: 15, 42, 38, 100。4684/52623 非空。全件半角整数。"
       }
     ],
     "auto_apply_eligibility": "partial",
     "known_schema_fingerprints": [
       "1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e"
     ],
-    "notes": "solar 260312 seed 由来。260312_顧客_太陽光.csv / .xlsx (124列、CSV と XLSX は同一列構成)。master row + portal 混在前提。全 124 列のうち代表 70 列を seed（customer canonical 63列 + portal artifact 7列）。残り 54 列は人手レビュー。内訳: 基本属性 20列 / date 系 22列 / cancel 系 3列 / status-detail 1列 / portal 7列 / 人系 6列（作成者・修正者・訪問担当者・ｱﾎﾟ担当・担当者ﾌﾘｶﾞﾅ・代表者ﾌﾘｶﾞﾅ）/ ID系 2列（申請ID・伝票番号）/ 成績・請求系 4列（成績計上日・成績計上月・請求書発行日・入金日）/ 書類・手続き系 5列（借受証発送・承諾書発送・報告書到着日・保証書着・保証申請）/ 設備フロー系 2列（平面図到着・完工報告）。portal 列（ｱﾎﾟﾘｽﾄ:: / ｺｰﾙ履歴:: prefix）は canonical_field=null で auto-apply 側が skip 扱いにする。auto_apply_eligibility=partial（全 seeded 列が high confidence のため、seeded 列を auto-apply し未解決列を review queue へ）。schema_fingerprint: computeSchemaFingerprint(headers) from review-bundle.ts (lowercase+trim, sort, join \\0)。算出根拠: scripts/compute-template-fingerprints-260312.ts"
+    "notes": "solar 260312 seed 由来。260312_顧客_太陽光.csv / .xlsx (124列、CSV と XLSX は同一列構成)。master row + portal 混在前提。全 124 列のうち代表 81 列を seed（customer canonical 74列 + portal artifact 7列）。残り 43 列は人手レビュー。内訳: 基本属性 20列 / date 系 22列 / cancel 系 3列 / status-detail 1列 / portal 7列 / 人系 6列（作成者・修正者・訪問担当者・ｱﾎﾟ担当・担当者ﾌﾘｶﾞﾅ・代表者ﾌﾘｶﾞﾅ）/ ID系 2列（申請ID・伝票番号）/ 成績・請求系 4列（成績計上日・成績計上月・請求書発行日・入金日）/ 書類・手続き系 5列（借受証発送・承諾書発送・報告書到着日・保証書着・保証申請）/ 設備フロー系 2列（平面図到着・完工報告）/ text/name 系 8列（注意事項・備考・営業コメント・工事希望・工事希望1・施工管理・販売店・設置店名）/ numeric 系 3列（設置kw・枚数・築年数）。portal 列（ｱﾎﾟﾘｽﾄ:: / ｺｰﾙ履歴:: prefix）は canonical_field=null で auto-apply 側が skip 扱いにする。auto_apply_eligibility=partial（全 seeded 列が high confidence のため、seeded 列を auto-apply し未解決列を review queue へ）。schema_fingerprint: computeSchemaFingerprint(headers) from review-bundle.ts (lowercase+trim, sort, join \\0)。算出根拠: scripts/compute-template-fingerprints-260312.ts"
   },
   {
     "template_id": "tmpl_call_history_260312_v1",

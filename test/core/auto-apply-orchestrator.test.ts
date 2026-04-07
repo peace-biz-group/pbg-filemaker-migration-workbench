@@ -480,4 +480,35 @@ describe('runAutoApplyPreview — 260312 seed integration', () => {
     // 未 seed 列は fail-closed で unresolved に残る
     expect(result.unresolvedColumns).toContain('部材名');
   });
+
+  it('customer_master partial — resolves numeric seeded cols (installation_kw / panel_count / building_age_years)', () => {
+    loadSeedDir(SEED_260312, tmpDir);
+
+    const testCols = ['設置kw', '枚数', '築年数', '部材名'];
+    const result = runAutoApplyPreview(testCols, 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
+
+    expect(result.templateId).toBe('tmpl_customer_master_260312_v1');
+    expect(result.autoApplyEligibility).toBe('partial');
+
+    const kw = result.appliedDecisions.find((d) => d.sourceColumn === '設置kw');
+    expect(kw).toBeDefined();
+    expect(kw!.canonicalField).toBe('installation_kw');
+    expect(kw!.source).toBe('template');
+
+    const panelCount = result.appliedDecisions.find((d) => d.sourceColumn === '枚数');
+    expect(panelCount).toBeDefined();
+    expect(panelCount!.canonicalField).toBe('panel_count');
+    expect(panelCount!.source).toBe('template');
+
+    const buildingAge = result.appliedDecisions.find((d) => d.sourceColumn === '築年数');
+    expect(buildingAge).toBeDefined();
+    expect(buildingAge!.canonicalField).toBe('building_age_years');
+    expect(buildingAge!.source).toBe('template');
+
+    // 未 seed 列は fail-closed で unresolved に残る
+    expect(result.unresolvedColumns).toContain('部材名');
+    expect(result.unresolvedColumns).not.toContain('設置kw');
+    expect(result.unresolvedColumns).not.toContain('枚数');
+    expect(result.unresolvedColumns).not.toContain('築年数');
+  });
 });
