@@ -31,6 +31,7 @@ async function importPreview(baseUrl: string, blob: Blob, filename: string) {
   return res.json() as Promise<{
     autoApplyResult: {
       familyId: string;
+      familyCertainty: string;
       appliedDecisions: Array<{ sourceColumn: string; canonicalField: string | null; source: string }>;
       unresolvedColumns: string[];
     };
@@ -167,13 +168,15 @@ describe('TC-3: unknown family 分離 — customer_master の記録は unknown f
     const result = await importPreview(baseUrl, blob, 'neutral.csv');
 
     expect(result.autoApplyResult.familyId).toBe('unknown');
+    expect(result.autoApplyResult.familyCertainty).toBe('unknown');
     const leaked = result.autoApplyResult.appliedDecisions.find(d => d.sourceColumn === 'A');
     expect(leaked).toBeUndefined();
+    expect(result.autoApplyResult.unresolvedColumns).toContain('A');
   });
 });
 
 describe('TC-4: session vs template 保存の差分', () => {
-  it('session-only（POST なし）は再 import-preview で auto-apply されない', async () => {
+  it('POST なし（未保存）は再 import-preview でも unresolved のまま', async () => {
     const blob = makeCSV(CUSTOMER_COLS, [['090', '田中', '製造業']]);
 
     const first = await importPreview(baseUrl, blob, 'customer.csv');
