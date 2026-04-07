@@ -3,12 +3,16 @@ import { enrichRoutingDecisionWithFamily } from './source-routing.js';
 import {
   getTemplate,
   loadRegistry as loadTemplateRegistry,
+  type MappingTemplate,
 } from './mapping-template-registry.js';
 import {
   loadMemory,
   lookupResolution,
   shouldAutoApply,
 } from './resolution-memory.js';
+import { type FamilyCertainty } from './family-registry.js';
+
+type AutoApplyEligibility = MappingTemplate['auto_apply_eligibility'] | 'no_template';
 
 export interface AppliedDecision {
   sourceColumn: string;
@@ -19,9 +23,9 @@ export interface AppliedDecision {
 
 export interface AutoApplyPreviewResult {
   familyId: string;
-  familyCertainty: string;
+  familyCertainty: FamilyCertainty;
   templateId: string | null;
-  autoApplyEligibility: 'full' | 'partial' | 'review_required' | 'no_template';
+  autoApplyEligibility: AutoApplyEligibility;
   appliedDecisions: AppliedDecision[];
   unresolvedColumns: string[];
 }
@@ -43,12 +47,14 @@ export function runAutoApplyPreview(
   outputDir: string,
 ): AutoApplyPreviewResult {
   // Step 1: Resolve family
-  const { familyId, certainty: familyCertainty } = enrichRoutingDecisionWithFamily(
+  const routingResult = enrichRoutingDecisionWithFamily(
     columns,
     encoding,
     hasHeader,
     outputDir,
   );
+  const familyId = routingResult.familyId;
+  const familyCertainty = routingResult.certainty as FamilyCertainty;
 
   // Step 2: Resolve template
   const templateRegistry = loadTemplateRegistry(outputDir);
