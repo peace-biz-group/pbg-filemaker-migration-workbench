@@ -22,6 +22,7 @@ import type {
 } from '../types/review.js';
 import { getRun } from './pipeline-runner.js';
 import { loadMemory, lookupResolution, shouldAutoApply } from './resolution-memory.js';
+import { loadRegistry, getTemplate } from './mapping-template-registry.js';
 
 // --- Hashing ---
 
@@ -70,6 +71,33 @@ export function applyColumnIgnoreResolutions(
   });
 }
 
+// --- Template pre-fill ---
+
+export function applyTemplateToColumns(
+  columns: ColumnReview[],
+  schemaFP: string,
+  outputDir: string,
+): ColumnReview[] {
+  const registry = loadRegistry(outputDir);
+  const template = getTemplate(schemaFP, registry);
+  if (!template) return columns;
+
+  const decisionMap = new Map(template.column_decisions.map((d) => [d.source_col, d]));
+
+  return columns.map((col) => {
+    // Don't overwrite existing human decisions
+    if (col.decision !== 'unknown') return col;
+
+    const d = decisionMap.get(col.sourceColumn);
+    if (!d || d.confidence === 'low') return col;
+
+    if (d.canonical_field === null) {
+      return { ...col, decision: 'unused' as const };
+    }
+    return { ...col, humanSemanticField: d.canonical_field, decision: 'accepted' as const };
+  });
+}
+
 // --- CRUD ---
 
 export async function createReview(
@@ -90,15 +118,19 @@ export async function createReview(
   // Profile the file to get column info
   const profile = await profileFile(filePath, config);
 
-  // Generate suggestions, applying any persisted column_ignore resolutions
-  const columns = applyColumnIgnoreResolutions(
-    suggestAllColumns(profile.columns, config, filePath),
-    outputDir,
-  );
-
   // Compute hashes
   const sourceFileHash = computeFileHash(filePath);
   const schemaFingerprint = computeSchemaFingerprint(profile.columns.map((c) => c.name));
+
+  // Generate suggestions, applying any persisted column_ignore resolutions and template pre-fill
+  const columns = applyTemplateToColumns(
+    applyColumnIgnoreResolutions(
+      suggestAllColumns(profile.columns, config, filePath),
+      outputDir,
+    ),
+    schemaFingerprint,
+    outputDir,
+  );
 
   // Suggest file type
   const fileTypeSuggestion = suggestFileType(columns);
