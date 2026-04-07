@@ -1,0 +1,1022 @@
+[
+  {
+    "template_id": "tmpl_customer_master_260312_v1",
+    "family_id": "customer_master",
+    "schema_fingerprint": "1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e",
+    "version": 1,
+    "created_at": "2026-04-07T00:00:00Z",
+    "confirmed_at": null,
+    "column_decisions": [
+      {
+        "source_col": "お客様ID",
+        "canonical_field": "customer_id",
+        "inferred_type": "id",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "メールアドレス",
+        "canonical_field": "email",
+        "inferred_type": "email",
+        "normalization_rule": "normalize_email",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "FAX番号",
+        "canonical_field": "fax_number",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "ﾌﾘｶﾞﾅ",
+        "canonical_field": "name_phonetic",
+        "inferred_type": "name",
+        "normalization_rule": "normalize_kana",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "営業担当",
+        "canonical_field": "sales_staff",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "電話番号",
+        "canonical_field": "phone_number",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "住所",
+        "canonical_field": "address",
+        "inferred_type": "address",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "設置住所",
+        "canonical_field": "installation_address",
+        "inferred_type": "address",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。設置場所の住所（顧客住所と別の場合あり）"
+      },
+      {
+        "source_col": "郵便番号",
+        "canonical_field": "postal_code",
+        "inferred_type": "postal_code",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "設置電話番号",
+        "canonical_field": "installation_phone_number",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。設置先の電話番号"
+      },
+      {
+        "source_col": "ステータス",
+        "canonical_field": "status",
+        "inferred_type": "status",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "受注日",
+        "canonical_field": "order_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "作成日",
+        "canonical_field": "created_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker レコード作成日"
+      },
+      {
+        "source_col": "修正日",
+        "canonical_field": "modified_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker レコード最終更新日"
+      },
+      {
+        "source_col": "契約者",
+        "canonical_field": "contractor_name",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "緊急連絡先",
+        "canonical_field": "emergency_contact",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "代表者携帯",
+        "canonical_field": "representative_mobile",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "担当者携帯",
+        "canonical_field": "staff_mobile",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "電番【検索用】",
+        "canonical_field": "phone_search",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker 検索用正規化済み電話番号列"
+      },
+      {
+        "source_col": "申込者",
+        "canonical_field": "applicant_name",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "工事日",
+        "canonical_field": "construction_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "工事完了日",
+        "canonical_field": "construction_complete_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "連系日",
+        "canonical_field": "grid_connection_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。太陽光固有: 系統連系日"
+      },
+      {
+        "source_col": "電力申請依頼日",
+        "canonical_field": "power_application_request_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "電力申請許可日",
+        "canonical_field": "power_application_approval_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "FIT申請依頼日",
+        "canonical_field": "fit_application_request_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。太陽光固有: FIT 制度申請依頼日"
+      },
+      {
+        "source_col": "FIT許可日",
+        "canonical_field": "fit_approval_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。太陽光固有: FIT 制度許可日"
+      },
+      {
+        "source_col": "業者現地調査日",
+        "canonical_field": "contractor_inspection_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "ドローン現調日",
+        "canonical_field": "drone_inspection_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。太陽光固有: ドローン現地調査日"
+      },
+      {
+        "source_col": "再訪日",
+        "canonical_field": "revisit_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "発注日",
+        "canonical_field": "order_placed_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "納入日",
+        "canonical_field": "delivery_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "確認完了日",
+        "canonical_field": "verification_complete_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "見積依頼日",
+        "canonical_field": "estimate_request_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "見積到着日",
+        "canonical_field": "estimate_arrival_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "申込書発送日",
+        "canonical_field": "application_sent_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "審査依頼日",
+        "canonical_field": "screening_request_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "審査結果日",
+        "canonical_field": "screening_result_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "作成時刻",
+        "canonical_field": "created_time",
+        "inferred_type": "time",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker レコード作成時刻"
+      },
+      {
+        "source_col": "修正時刻",
+        "canonical_field": "modified_time",
+        "inferred_type": "time",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker レコード最終更新時刻"
+      },
+      {
+        "source_col": "ｷｬﾝｾﾙﾌﾗｸﾞ",
+        "canonical_field": "cancel_flag",
+        "inferred_type": "bool",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "ｷｬﾝｾﾙ日",
+        "canonical_field": "cancel_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "キャンセル理由",
+        "canonical_field": "cancel_reason",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "審査結果",
+        "canonical_field": "screening_result",
+        "inferred_type": "status",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "ｱﾎﾟﾘｽﾄ::営業時間",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（アポリスト）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "ｱﾎﾟﾘｽﾄ::定休日",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（アポリスト）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "ｺｰﾙ履歴::お客様担当",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（コール履歴）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "ｺｰﾙ履歴::時刻",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（コール履歴）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "ｺｰﾙ履歴::担当者",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（コール履歴）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "ｺｰﾙ履歴::内容",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（コール履歴）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "ｺｰﾙ履歴::日付",
+        "canonical_field": null,
+        "inferred_type": "portal",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal expanded 列（コール履歴）。customer canonical に確定しない"
+      },
+      {
+        "source_col": "作成者",
+        "canonical_field": "created_by",
+        "inferred_type": "staff",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker レコード作成ユーザー名。作成日・作成時刻と対をなす責任主体フィールド"
+      },
+      {
+        "source_col": "修正者",
+        "canonical_field": "modified_by",
+        "inferred_type": "staff",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker レコード最終更新ユーザー名。修正日・修正時刻と対をなす責任主体フィールド"
+      },
+      {
+        "source_col": "訪問担当者",
+        "canonical_field": "visit_staff",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。訪問担当者名。列名が具体的で意味一意"
+      },
+      {
+        "source_col": "ｱﾎﾟ担当",
+        "canonical_field": "appointment_staff",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。アポイントメント担当者名（半角カナ略称）"
+      },
+      {
+        "source_col": "担当者ﾌﾘｶﾞﾅ",
+        "canonical_field": "staff_name_phonetic",
+        "inferred_type": "name",
+        "normalization_rule": "normalize_kana",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。担当者携帯（staff_mobile 既seeded）と対をなすフリガナ列"
+      },
+      {
+        "source_col": "代表者ﾌﾘｶﾞﾅ",
+        "canonical_field": "representative_name_phonetic",
+        "inferred_type": "name",
+        "normalization_rule": "normalize_kana",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。代表者携帯（representative_mobile 既seeded）と対をなすフリガナ列"
+      },
+      {
+        "source_col": "申請ID",
+        "canonical_field": "application_id",
+        "inferred_type": "id",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。申請識別キー。再利用価値あり"
+      },
+      {
+        "source_col": "伝票番号",
+        "canonical_field": "voucher_number",
+        "inferred_type": "id",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。業務伝票番号。照合・追跡に使用される識別キー"
+      },
+      {
+        "source_col": "成績計上日",
+        "canonical_field": "performance_booking_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。成績計上タイミングの日付。preview 100行は全空だが列名が明確"
+      },
+      {
+        "source_col": "成績計上月",
+        "canonical_field": "performance_booking_month",
+        "inferred_type": "month",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。値 2010=YYMM 形式（20年10月）。date ではなく month として扱う"
+      },
+      {
+        "source_col": "請求書発行日",
+        "canonical_field": "invoice_issued_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。値 2021/03/09 形式確認済み。請求書発行日②は空欄多く ambiguous のため skip"
+      },
+      {
+        "source_col": "入金日",
+        "canonical_field": "payment_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。値 2021/04/30 形式確認済み。入金日②は空欄多く ambiguous のため skip"
+      },
+      {
+        "source_col": "借受証発送",
+        "canonical_field": "lease_certificate_sent_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。リース借受証の発送日。値 2021/05/31 形式確認済み（1166/52623 件）。書類送付フロー追跡用"
+      },
+      {
+        "source_col": "承諾書発送",
+        "canonical_field": "consent_form_sent_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。承諾書の発送日。値 2020/12/10 形式確認済み（1303/52623 件）。承諾フロー追跡用"
+      },
+      {
+        "source_col": "報告書到着日",
+        "canonical_field": "report_arrival_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。報告書の到着日。値 2020/10/06 形式確認済み（2923/52623 件）。書類受領フロー追跡用"
+      },
+      {
+        "source_col": "保証書着",
+        "canonical_field": "warranty_receipt_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。保証書の到着日。値 2021/07/20 形式確認済み（1202/52623 件）。保証書受領フロー追跡用"
+      },
+      {
+        "source_col": "保証申請",
+        "canonical_field": "warranty_application_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。保証申請の提出日。値 2021/07/20 形式確認済み（1204/52623 件）。保証申請フロー追跡用"
+      },
+      {
+        "source_col": "平面図到着",
+        "canonical_field": "blueprint_arrival_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。施工図面の到着日。値 2020/10/09 形式確認済み。設備フロー（工事前準備）の節目日"
+      },
+      {
+        "source_col": "完工報告",
+        "canonical_field": "completion_report_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。工事完了報告日。値 2021/02/25 形式確認済み。列名は動詞句だが実値は date（audit-solar-phase3 で DATE 型確認済み）。設備フロー（完工確認）の節目日"
+      },
+      {
+        "source_col": "注意事項",
+        "canonical_field": "caution_note",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "所有者・委任状・実務メモ等の自由記述。2260/5357 非空。"
+      },
+      {
+        "source_col": "備考",
+        "canonical_field": "note",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "汎用備考欄。1839/5357 非空。"
+      },
+      {
+        "source_col": "営業コメント",
+        "canonical_field": "sales_comment",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "営業担当によるコメント欄。2874/5357 非空。"
+      },
+      {
+        "source_col": "工事希望",
+        "canonical_field": "construction_request_note",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "工事希望日の自由記述（複数候補・条件を列挙）。date ではなく text。283/5357 非空。"
+      },
+      {
+        "source_col": "工事希望1",
+        "canonical_field": "construction_request_condition",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "工事希望の補足条件（'平日'/'3月希望'/'火曜日希望' 等）。257/5357 非空。"
+      },
+      {
+        "source_col": "施工管理",
+        "canonical_field": "construction_manager",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "medium",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "施工管理担当業者の略称（'ピュア'/'トラスト'/'OS' 等）。人名ではなく会社名略称。384/5357 非空。"
+      },
+      {
+        "source_col": "販売店",
+        "canonical_field": "sales_store_name",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "販売代理店名。5357/5357 全行非空。"
+      },
+      {
+        "source_col": "設置店名",
+        "canonical_field": "installation_site_name",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "設置場所の名義人氏名。5316/5357 非空。"
+      },
+      {
+        "source_col": "設置kw",
+        "canonical_field": "installation_kw",
+        "inferred_type": "decimal",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "太陽光パネル設置容量 (kW)。値例: 7.24, 5.3, 6.625。1483/52623 非空。全件半角数値。"
+      },
+      {
+        "source_col": "枚数",
+        "canonical_field": "panel_count",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "太陽光パネル枚数。値例: 20, 25, 22。5353/52623 非空。全件半角整数。"
+      },
+      {
+        "source_col": "築年数",
+        "canonical_field": "building_age_years",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "建物築年数。値例: 15, 42, 38, 100。4684/52623 非空。全件半角整数。"
+      },
+      {
+        "source_col": "【見積】依頼日",
+        "canonical_field": "estimate_doc_request_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積書の依頼日。3115/52623 非空。全件 YYYY/MM/DD 形式。estimate_request_date（見積依頼日）と区別するため _doc_ を付与。"
+      },
+      {
+        "source_col": "【見積】到着日",
+        "canonical_field": "estimate_doc_arrival_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積書の到着日。3071/52623 非空。全件 YYYY/MM/DD 形式。estimate_arrival_date（見積到着日）と区別するため _doc_ を付与。"
+      },
+      {
+        "source_col": "【見積】備考",
+        "canonical_field": "estimate_doc_note",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積書備考。3039/52623 非空。パネル枚数・設置条件等の自由テキスト。"
+      },
+      {
+        "source_col": "【見積】メーカー",
+        "canonical_field": "estimate_doc_manufacturer",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積対象メーカー名。3137/52623 非空。Qセルズ(2243)・長州産業(634)・カナディアン(207)等。固有名詞として安定。"
+      },
+      {
+        "source_col": "リース料金",
+        "canonical_field": "lease_monthly_amount",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "リース月額（円）。1429/52623 非空。min=6700 max=189000 median=15800。太陽光設備リース月額として一貫。5件に小数点値（kW値誤入力と推定）あるが意味解釈は変わらない。"
+      },
+      {
+        "source_col": "計上粗利",
+        "canonical_field": "booked_gross_profit",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "計上粗利（万円）。775/52623 非空。min=0 max=122 median=27 mean=28.8。全値整数。設置kwとの相関r=0.92。万円解釈でprofit/kw中央値35,491円/kw（粗利率10-15%相当）。円・千円・%解釈はいずれも非現実的。"
+      },
+      {
+        "source_col": "職業",
+        "canonical_field": "occupation",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "職業（自由記述）。2897/52623 非空。165 unique。上位: 会社員(1127)・自営業(624)・無職(417)・農業(207)。値揺れあり（表記ゆれ・複合記述）のため enum 化せず text。"
+      },
+      {
+        "source_col": "使用者との続柄",
+        "canonical_field": "relation_to_user",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "使用者（太陽光設置先）との続柄。5190/52623 非空。14 unique。本人(5122, 98.7%)・代表取締役(36)・代表(17)他。1件に電話番号誤入力あるが意味解釈は変わらない。個人/法人の続柄混在のため enum 化せず text。"
+      },
+      {
+        "source_col": "契約者との続柄",
+        "canonical_field": "relation_to_contractor",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "契約者との続柄。2167/52623 非空。60 unique。妻(1184)・母(235)・父(146)・夫(136)・子(110)他。家族続柄が主体、一部法人役職混在。60 unique は enum には多すぎるため text。"
+      },
+      {
+        "source_col": "メーカー",
+        "canonical_field": "system_manufacturer",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "主要機器メーカー名。1561/52623 非空。14 unique。Qセルズ(814)・長州産業(463)・カナディアン(250)等。太陽光パネル・蓄電池・パワコン各メーカーが混在するが「設備の主要メーカー」として意味一貫。14 unique は管理可能だが値の追加可能性があるため text。"
+      }
+    ],
+    "auto_apply_eligibility": "partial",
+    "known_schema_fingerprints": [
+      "1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e"
+    ],
+    "notes": "solar 260312 seed 由来。260312_顧客_太陽光.csv / .xlsx (124列、CSV と XLSX は同一列構成)。master row + portal 混在前提。全 124 列のうち代表 87 列を seed（customer canonical 80列 + portal artifact 7列）。残り 37 列は人手レビュー。内訳: 基本属性 20列 / date 系 22列 / cancel 系 3列 / status-detail 1列 / portal 7列 / 人系 6列（作成者・修正者・訪問担当者・ｱﾎﾟ担当・担当者ﾌﾘｶﾞﾅ・代表者ﾌﾘｶﾞﾅ）/ ID系 2列（申請ID・伝票番号）/ 成績・請求系 4列（成績計上日・成績計上月・請求書発行日・入金日）/ 書類・手続き系 5列（借受証発送・承諾書発送・報告書到着日・保証書着・保証申請）/ 設備フロー系 2列（平面図到着・完工報告）/ text/name 系 8列（注意事項・備考・営業コメント・工事希望・工事希望1・施工管理・販売店・設置店名）/ numeric 系 3列（設置kw・枚数・築年数）/ amount 系 2列（リース料金・計上粗利）/ classification 系 4列（職業・使用者との続柄・契約者との続柄・メーカー）。portal 列（ｱﾎﾟﾘｽﾄ:: / ｺｰﾙ履歴:: prefix）は canonical_field=null で auto-apply 側が skip 扱いにする。auto_apply_eligibility=partial（全 seeded 列が high confidence のため、seeded 列を auto-apply し未解決列を review queue へ）。schema_fingerprint: computeSchemaFingerprint(headers) from review-bundle.ts (lowercase+trim, sort, join \\0)。算出根拠: scripts/compute-template-fingerprints-260312.ts"
+  },
+  {
+    "template_id": "tmpl_call_history_260312_v1",
+    "family_id": "call_history",
+    "schema_fingerprint": "a41781a80599e9183b620f3c1ea6059ce79b6fa3fb358e78d7a0178349edb0ab",
+    "version": 1,
+    "created_at": "2026-04-07T00:00:00Z",
+    "confirmed_at": null,
+    "column_decisions": [
+      {
+        "source_col": "<テーブルが見つかりません>",
+        "canonical_field": null,
+        "inferred_type": "artifact",
+        "normalization_rule": null,
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。FileMaker portal テーブル未解決時の artifact。canonical 意味へ確定しない"
+      },
+      {
+        "source_col": "日付",
+        "canonical_field": "call_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "時刻",
+        "canonical_field": "call_time",
+        "inferred_type": "time",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "担当者",
+        "canonical_field": "staff_name",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "電話番号【検索】",
+        "canonical_field": "phone_lookup",
+        "inferred_type": "phone",
+        "normalization_rule": "normalize_phone",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "内容",
+        "canonical_field": "call_note",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "low",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来。列名が汎用的なため low confidence"
+      },
+      {
+        "source_col": "日時",
+        "canonical_field": "call_datetime",
+        "inferred_type": "datetime",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      },
+      {
+        "source_col": "お客様担当",
+        "canonical_field": "customer_staff",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "solar 260312 seed 由来"
+      }
+    ],
+    "auto_apply_eligibility": "partial",
+    "known_schema_fingerprints": [
+      "a41781a80599e9183b620f3c1ea6059ce79b6fa3fb358e78d7a0178349edb0ab"
+    ],
+    "notes": "solar 260312 seed 由来。260312_コール履歴_太陽光.xlsx (8列)。第1列 '<テーブルが見つかりません>' は FileMaker portal artifact (canonical_field=null)。'内容' は汎用列名のため low confidence。1/8 = 12.5% low → partial。schema_fingerprint: computeSchemaFingerprint(headers) from review-bundle.ts (lowercase+trim, sort, join \\0)。算出根拠: scripts/compute-template-fingerprints-260312.ts"
+  }
+]

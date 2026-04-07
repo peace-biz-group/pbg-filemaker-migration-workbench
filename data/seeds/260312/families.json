@@ -1,0 +1,26 @@
+[
+  {
+    "fingerprint": "24ea1e697430fd82dfb8b414de7f9161f89bec1b46239eeb12546e48c154b9a8",
+    "family_id": "customer_master",
+    "certainty": "high",
+    "confirmed_at": null,
+    "column_count": 124,
+    "encoding": "utf-8",
+    "has_header": true,
+    "sample_filename": "260312_顧客_太陽光.csv",
+    "matched_template_id": null,
+    "notes": "computeFileShapeFingerprint(headers, 'utf-8', true) で算出。CSV/.xlsx 同列構成のため同一 fingerprint。master row + portal expanded row 混在前提（customer-only 断定せず）。算出根拠: scripts/compute-family-fingerprints-260312.ts"
+  },
+  {
+    "fingerprint": "5828c2447b2034f1991f5abbd73f36e589124aed32350113c593eaece8fb7564",
+    "family_id": "call_history",
+    "certainty": "high",
+    "confirmed_at": null,
+    "column_count": 8,
+    "encoding": "utf-8",
+    "has_header": true,
+    "sample_filename": "260312_コール履歴_太陽光.xlsx",
+    "matched_template_id": null,
+    "notes": "computeFileShapeFingerprint(headers, 'utf-8', true) で算出。第1列 '<テーブルが見つかりません>' は FileMaker portal テーブル未解決時の artifact。算出根拠: scripts/compute-family-fingerprints-260312.ts"
+  }
+]

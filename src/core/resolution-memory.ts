@@ -9,7 +9,8 @@ export type ResolutionType =
   | 'parent_child_classification'
   | 'column_ignore'
   | 'encoding_exception'
-  | 'merge_policy';
+  | 'merge_policy'
+  | 'column_canonical';
 
 export type ResolutionCertainty = 'confirmed' | 'high' | 'low';
 export type ResolutionScope = 'phone_value' | 'status_value' | 'family' | 'schema_fp' | 'global';
