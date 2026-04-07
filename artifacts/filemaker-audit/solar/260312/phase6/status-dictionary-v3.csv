@@ -1,0 +1,17 @@
+status_value,count,percentage,sample_customer_ids,normalized_stage_v2,normalized_stage_v3,stage_confidence,revised_in_v3,revision_source,requires_hearing,impact_score,priority_rank
+キャンセル,3999,74.6%,RC0L002;RC0L003;RC0L004,cancelled,cancelled,high,no,inherited_from_v2,,3999,1
+完了,1198,22.4%,RC0L001;RC0L007;RC0L008,completed,completed,high,no,inherited_from_v2,,1198,2
+再訪問調整中,35,0.7%,RC4L015;RC5E067;RC5E071,follow_up_scheduling,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,105,3
+回収保留,19,0.4%,RC5F010;RC5H056;RC5K033,payment_on_hold,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,57,4
+FIT許可待ち,34,0.6%,RC3C006;RC5B092;RC5E043,waiting_fit_approval,waiting_fit_approval,high,no,inherited_from_v2,,34,5
+対応中,15,0.3%,RC1F012;RC1L033;RC2C001,in_progress,unresolved,medium,no,provisional (hearing 未回答),具体的にどの段階か要確認,30,6
+現調待ち,8,0.1%,RC5J068;RC6A020;RC6A022,waiting_site_survey,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,24,7
+工事待ち,16,0.3%,RC5E074;RC5J031;RC5J069,waiting_construction,waiting_construction,high,no,inherited_from_v2,,16,8
+書類待ち,7,0.1%,RC4A015;RC5J050;RC5K022,waiting_documents,unresolved,medium,no,provisional (hearing 未回答),どの書類を待っているか,14,9
+見積待ち,10,0.2%,RC5G001;RC5G058;RC5L042,waiting_estimate,waiting_estimate,high,no,inherited_from_v2,,10,10
+工事日調整中,3,0.1%,RC5J012;RC5J041;RC5L018,construction_scheduling,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,9,11
+現調申込,3,0.1%,RC5J058;RC6B032;RC6C015,site_survey_requested,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,9,12
+発注待ち,3,0.1%,RC5L010;RC5L028;RC6B011,waiting_order,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,9,13
+現調日調整中,3,0.1%,RC5L037;RC6B034;RC6B040,site_survey_scheduling,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,9,14
+連系待ち,3,0.1%,RC4F048;RC5B056;RC5J034,waiting_grid_connection,waiting_grid_connection,high,no,inherited_from_v2,,3,15
+電力申請依頼要,1,0.0%,RC6A033,power_application_needed,unresolved,low,no,provisional (hearing 未回答),業務意味を確認,3,16

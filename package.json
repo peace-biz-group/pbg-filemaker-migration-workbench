@@ -23,7 +23,13 @@
     "dry-run:4": "tsx scripts/dry-run-4.ts",
     "ui": "tsx src/ui/server.ts",
     "ui:dev": "tsx watch src/ui/server.ts",
-    "ui:lan": "cross-env HOST=0.0.0.0 PORT=3456 tsx src/ui/server.ts"
+    "ui:lan": "cross-env HOST=0.0.0.0 PORT=3456 tsx src/ui/server.ts",
+    "audit:solar": "tsx scripts/audit-solar-260312.ts",
+    "audit:solar:phase2": "tsx scripts/audit-solar-260312-phase2.ts",
+    "audit:solar:phase3": "tsx scripts/audit-solar-260312-phase3.ts",
+    "audit:solar:phase4": "tsx scripts/audit-solar-260312-phase4.ts",
+    "audit:solar:phase5": "tsx scripts/audit-solar-260312-phase5.ts",
+    "audit:solar:phase6": "tsx scripts/audit-solar-260312-phase6.ts"
   },
   "keywords": [
     "filemaker",
