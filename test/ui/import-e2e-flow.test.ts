@@ -141,3 +141,66 @@ describe('TC-1: template 保存 → 再 upload で auto-apply が効く', () => 
     expect(second.autoApplyResult.unresolvedColumns).not.toContain('業種【小分類】');
   });
 });
+
+describe('TC-2: family 分離 — 別 family には効かない', () => {
+  it('customer_master の column_canonical は call_history ファイルに漏れない', async () => {
+    // このテスト内で独自に保存
+    await saveResolution(baseUrl, makeCanonicalRecord('業種【小分類】', 'customer_master', 'industry_subcategory'));
+
+    const blob = makeCSV(CALL_COLS, [['2026-04-01', '架電済', '製造業']]);
+    const result = await importPreview(baseUrl, blob, 'call.csv');
+
+    expect(result.autoApplyResult.familyId).toBe('call_history');
+    const leaked = result.autoApplyResult.appliedDecisions.find(d => d.sourceColumn === '業種【小分類】');
+    expect(leaked).toBeUndefined();
+    expect(result.autoApplyResult.unresolvedColumns).toContain('業種【小分類】');
+  });
+});
+
+describe('TC-3: unknown family 分離 — customer_master の記録は unknown family に漏れない', () => {
+  it('customer_master の column_canonical は fingerprint 未登録（unknown）ファイルに漏れない', async () => {
+    // neutral.csv の列名 'A' に customer_master 決定を保存
+    await saveResolution(baseUrl, makeCanonicalRecord('A', 'customer_master', 'some_field'));
+
+    // neutral.csv は fingerprint 未登録 → familyId: 'unknown'
+    const blob = makeCSV(['A', 'B', 'C'], [['1', '2', '3']]);
+    const result = await importPreview(baseUrl, blob, 'neutral.csv');
+
+    expect(result.autoApplyResult.familyId).toBe('unknown');
+    const leaked = result.autoApplyResult.appliedDecisions.find(d => d.sourceColumn === 'A');
+    expect(leaked).toBeUndefined();
+  });
+});
+
+describe('TC-4: session vs template 保存の差分', () => {
+  it('session-only（POST なし）は再 import-preview で auto-apply されない', async () => {
+    const blob = makeCSV(CUSTOMER_COLS, [['090', '田中', '製造業']]);
+
+    const first = await importPreview(baseUrl, blob, 'customer.csv');
+    expect(first.autoApplyResult.unresolvedColumns).toContain('業種【小分類】');
+
+    // POST しない（session 扱い）
+
+    const second = await importPreview(baseUrl, blob, 'customer.csv');
+    expect(second.autoApplyResult.unresolvedColumns).toContain('業種【小分類】');
+    const applied = second.autoApplyResult.appliedDecisions.find(d => d.sourceColumn === '業種【小分類】');
+    expect(applied).toBeUndefined();
+  });
+
+  it('template 保存（POST あり）は再 import-preview で auto-apply される', async () => {
+    const blob = makeCSV(CUSTOMER2_COLS, [['090', '田中', '商品A', 'メモ']]);
+
+    const first = await importPreview(baseUrl, blob, 'customer2.csv');
+    expect(first.autoApplyResult.familyId).toBe('customer_master');
+    expect(first.autoApplyResult.unresolvedColumns).toContain('商品名');
+
+    // template として保存
+    await saveResolution(baseUrl, makeCanonicalRecord('商品名', 'customer_master', 'product_name'));
+
+    const second = await importPreview(baseUrl, blob, 'customer2.csv');
+    const resolved = second.autoApplyResult.appliedDecisions.find(d => d.sourceColumn === '商品名');
+    expect(resolved).toBeDefined();
+    expect(resolved!.canonicalField).toBe('product_name');
+    expect(second.autoApplyResult.unresolvedColumns).not.toContain('商品名');
+  });
+});
