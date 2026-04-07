@@ -511,4 +511,159 @@ describe('runAutoApplyPreview — 260312 seed integration', () => {
     expect(result.unresolvedColumns).not.toContain('枚数');
     expect(result.unresolvedColumns).not.toContain('築年数');
   });
+
+  it('customer_master partial — resolves estimate doc seeded cols (date / text / name)', () => {
+    loadSeedDir(SEED_260312, tmpDir);
+
+    const testCols = ['【見積】依頼日', '【見積】到着日', '【見積】備考', '【見積】メーカー', '部材名'];
+    const result = runAutoApplyPreview(testCols, 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
+
+    expect(result.templateId).toBe('tmpl_customer_master_260312_v1');
+    expect(result.autoApplyEligibility).toBe('partial');
+
+    const reqDate = result.appliedDecisions.find((d) => d.sourceColumn === '【見積】依頼日');
+    expect(reqDate).toBeDefined();
+    expect(reqDate!.canonicalField).toBe('estimate_doc_request_date');
+    expect(reqDate!.source).toBe('template');
+
+    const arrivalDate = result.appliedDecisions.find((d) => d.sourceColumn === '【見積】到着日');
+    expect(arrivalDate).toBeDefined();
+    expect(arrivalDate!.canonicalField).toBe('estimate_doc_arrival_date');
+    expect(arrivalDate!.source).toBe('template');
+
+    const docNote = result.appliedDecisions.find((d) => d.sourceColumn === '【見積】備考');
+    expect(docNote).toBeDefined();
+    expect(docNote!.canonicalField).toBe('estimate_doc_note');
+    expect(docNote!.source).toBe('template');
+
+    const manufacturer = result.appliedDecisions.find((d) => d.sourceColumn === '【見積】メーカー');
+    expect(manufacturer).toBeDefined();
+    expect(manufacturer!.canonicalField).toBe('estimate_doc_manufacturer');
+    expect(manufacturer!.source).toBe('template');
+
+    // 未 seed 列は fail-closed で unresolved に残る
+    expect(result.unresolvedColumns).toContain('部材名');
+    expect(result.unresolvedColumns).not.toContain('【見積】依頼日');
+    expect(result.unresolvedColumns).not.toContain('【見積】到着日');
+    expect(result.unresolvedColumns).not.toContain('【見積】備考');
+    expect(result.unresolvedColumns).not.toContain('【見積】メーカー');
+  });
+
+  it('customer_master partial — resolves lease_monthly_amount seeded col', () => {
+    loadSeedDir(SEED_260312, tmpDir);
+
+    const testCols = ['リース料金', '計上粗利', '部材名'];
+    const result = runAutoApplyPreview(testCols, 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
+
+    expect(result.templateId).toBe('tmpl_customer_master_260312_v1');
+    expect(result.autoApplyEligibility).toBe('partial');
+
+    const lease = result.appliedDecisions.find((d) => d.sourceColumn === 'リース料金');
+    expect(lease).toBeDefined();
+    expect(lease!.canonicalField).toBe('lease_monthly_amount');
+    expect(lease!.source).toBe('template');
+
+    const profit = result.appliedDecisions.find((d) => d.sourceColumn === '計上粗利');
+    expect(profit).toBeDefined();
+    expect(profit!.canonicalField).toBe('booked_gross_profit');
+    expect(profit!.source).toBe('template');
+
+    // 未 seed 列は fail-closed で unresolved に残る
+    expect(result.unresolvedColumns).toContain('部材名');
+    expect(result.unresolvedColumns).not.toContain('リース料金');
+    expect(result.unresolvedColumns).not.toContain('計上粗利');
+  });
+
+  it('customer_master partial — resolves classification seeded cols', () => {
+    loadSeedDir(SEED_260312, tmpDir);
+
+    const testCols = ['職業', '使用者との続柄', '契約者との続柄', 'メーカー', '業種【小分類】'];
+    const result = runAutoApplyPreview(testCols, 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
+
+    expect(result.templateId).toBe('tmpl_customer_master_260312_v1');
+    expect(result.autoApplyEligibility).toBe('partial');
+
+    const occ = result.appliedDecisions.find((d) => d.sourceColumn === '職業');
+    expect(occ).toBeDefined();
+    expect(occ!.canonicalField).toBe('occupation');
+    expect(occ!.source).toBe('template');
+
+    const relUser = result.appliedDecisions.find((d) => d.sourceColumn === '使用者との続柄');
+    expect(relUser).toBeDefined();
+    expect(relUser!.canonicalField).toBe('relation_to_user');
+
+    const relContractor = result.appliedDecisions.find((d) => d.sourceColumn === '契約者との続柄');
+    expect(relContractor).toBeDefined();
+    expect(relContractor!.canonicalField).toBe('relation_to_contractor');
+
+    const maker = result.appliedDecisions.find((d) => d.sourceColumn === 'メーカー');
+    expect(maker).toBeDefined();
+    expect(maker!.canonicalField).toBe('system_manufacturer');
+
+    // 未 seed 列は fail-closed で unresolved に残る
+    expect(result.unresolvedColumns).toContain('業種【小分類】');
+    expect(result.unresolvedColumns).not.toContain('職業');
+    expect(result.unresolvedColumns).not.toContain('使用者との続柄');
+    expect(result.unresolvedColumns).not.toContain('契約者との続柄');
+    expect(result.unresolvedColumns).not.toContain('メーカー');
+  });
+});
+
+describe('runAutoApplyPreview — column_canonical', () => {
+  const SEED_260312 = join(import.meta.dirname, '../../data/seeds/260312');
+  const CUSTOMER_SCHEMA_FP = '1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e';
+
+  it('column_canonical memory record resolves an unresolved column', () => {
+    loadSeedDir(SEED_260312, tmpDir);
+
+    let memory = createEmptyMemory();
+    memory = addResolution({
+      resolution_id: 'test-canonical-001',
+      resolution_type: 'column_canonical',
+      context_key: 'column:業種【小分類】',
+      family_id: 'customer_master',
+      decision: 'industry_subcategory',
+      decision_detail: { canonical_field: 'industry_subcategory', decided_via: 'import_ui' },
+      certainty: 'confirmed',
+      scope: 'family',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'always',
+      source_batch_ids: [],
+    }, memory);
+    saveMemory(memory, tmpDir);
+
+    const result = runAutoApplyPreview(['業種【小分類】', '部材名'], 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
+
+    const resolved = result.appliedDecisions.find((d) => d.sourceColumn === '業種【小分類】');
+    expect(resolved).toBeDefined();
+    expect(resolved!.canonicalField).toBe('industry_subcategory');
+    expect(resolved!.source).toBe('memory');
+    expect(result.unresolvedColumns).not.toContain('業種【小分類】');
+    expect(result.unresolvedColumns).toContain('部材名');
+  });
+
+  it('column_canonical with certainty=low is NOT resolved (fail-closed)', () => {
+    loadSeedDir(SEED_260312, tmpDir);
+
+    let memory = createEmptyMemory();
+    memory = addResolution({
+      resolution_id: 'test-canonical-002',
+      resolution_type: 'column_canonical',
+      context_key: 'column:業種【小分類】',
+      family_id: 'customer_master',
+      decision: 'industry_subcategory',
+      decision_detail: {},
+      certainty: 'low',
+      scope: 'family',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'always',
+      source_batch_ids: [],
+    }, memory);
+    saveMemory(memory, tmpDir);
+
+    const result = runAutoApplyPreview(['業種【小分類】'], 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
+    expect(result.unresolvedColumns).toContain('業種【小分類】');
+  });
 });

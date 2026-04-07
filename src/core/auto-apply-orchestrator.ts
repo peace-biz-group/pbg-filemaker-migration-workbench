@@ -93,6 +93,21 @@ export function runAutoApplyPreview(
     }
   }
 
+  // Step 4b: Apply resolution memory (column_canonical type)
+  for (const col of columns) {
+    if (resolvedColumns.has(col)) continue;
+    const rec = lookupResolution('column_canonical', `column:${col}`, memory);
+    if (rec && shouldAutoApply(rec)) {
+      appliedDecisions.push({
+        sourceColumn: col,
+        canonicalField: rec.decision,
+        confidence: rec.certainty,
+        source: 'memory',
+      });
+      resolvedColumns.add(col);
+    }
+  }
+
   // Step 5: Collect unresolved columns
   const unresolvedColumns = columns.filter((col) => !resolvedColumns.has(col));
 
