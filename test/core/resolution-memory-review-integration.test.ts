@@ -96,4 +96,44 @@ describe('applyColumnIgnoreResolutions', () => {
     const result = applyColumnIgnoreResolutions(columns, tmpDir);
     expect(result[0].decision).toBe('unknown');
   });
+
+  it('does not overwrite a column with existing human decision', () => {
+    let mem = createEmptyMemory();
+    const rec: ResolutionRecord = {
+      resolution_id: 'res_001',
+      resolution_type: 'column_ignore',
+      context_key: 'column:備考',
+      family_id: null,
+      decision: 'unused',
+      decision_detail: {},
+      certainty: 'confirmed',
+      scope: 'global',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'exact_match:column_name',
+      source_batch_ids: [],
+    };
+    mem = addResolution(rec, mem);
+    saveMemory(mem, tmpDir);
+
+    const column: ColumnReview = {
+      sourceColumn: '備考',
+      sampleValues: [],
+      missingRate: 0,
+      uniqueCount: 0,
+      suggestion: {
+        semanticField: 'unknown',
+        fieldFamily: 'raw_extra',
+        section: 'raw_extra_info',
+        confidence: 'low',
+        reason: '',
+      },
+      humanSemanticField: '備考メモ',
+      humanFieldFamily: null,
+      humanSection: null,
+      decision: 'accepted',  // already decided by human
+    };
+    const result = applyColumnIgnoreResolutions([column], tmpDir);
+    expect(result[0].decision).toBe('accepted');  // must NOT be overwritten
+  });
 });

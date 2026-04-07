@@ -63,7 +63,7 @@ export function applyColumnIgnoreResolutions(
   const memory = loadMemory(outputDir);
   return columns.map((col) => {
     const res = lookupResolution('column_ignore', `column:${col.sourceColumn}`, memory);
-    if (res && shouldAutoApply(res) && res.decision === 'unused') {
+    if (res && shouldAutoApply(res) && res.decision === 'unused' && col.decision === 'unknown') {
       return { ...col, decision: 'unused' as const };
     }
     return col;
