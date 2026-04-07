@@ -67,6 +67,23 @@ describe('upsertTemplate + getTemplate', () => {
     expect(found!.template_id).toBe('customer_master_v1');
   });
 
+  it('finds template by schema_fingerprint even when not in known_schema_fingerprints', () => {
+    let reg = createEmptyRegistry();
+    const template: MappingTemplate = {
+      template_id: 'tmpl_v2',
+      family_id: 'customer_master',
+      schema_fingerprint: 'primary_fp',
+      version: 1,
+      created_at: '2026-04-07T00:00:00Z',
+      confirmed_at: null,
+      column_decisions: [],
+      auto_apply_eligibility: 'review_required',
+      known_schema_fingerprints: [],  // deliberately empty
+    };
+    reg = upsertTemplate(template, reg);
+    expect(getTemplate('primary_fp', reg)!.template_id).toBe('tmpl_v2');
+  });
+
   it('maps all known_schema_fingerprints to the template', () => {
     let reg = createEmptyRegistry();
     const template: MappingTemplate = {
@@ -95,8 +112,8 @@ describe('computeAutoApplyEligibility', () => {
     expect(computeAutoApplyEligibility(decisions)).toBe('full');
   });
 
-  it('returns full for empty decisions', () => {
-    expect(computeAutoApplyEligibility([])).toBe('full');
+  it('returns review_required for empty decisions', () => {
+    expect(computeAutoApplyEligibility([])).toBe('review_required');
   });
 
   it('returns partial when low count <= 20%', () => {

@@ -52,7 +52,10 @@ export function upsertTemplate(
 ): MappingTemplateRegistry {
   const templates = { ...registry.templates, [template.template_id]: template };
   const fingerprint_to_template = { ...registry.fingerprint_to_template };
-  for (const fp of template.known_schema_fingerprints) {
+  const allFingerprints = Array.from(
+    new Set([template.schema_fingerprint, ...template.known_schema_fingerprints]),
+  );
+  for (const fp of allFingerprints) {
     fingerprint_to_template[fp] = template.template_id;
   }
   return { ...registry, templates, fingerprint_to_template };
@@ -61,7 +64,7 @@ export function upsertTemplate(
 export function computeAutoApplyEligibility(
   decisions: ColumnDecision[],
 ): 'full' | 'partial' | 'review_required' {
-  if (decisions.length === 0) return 'full';
+  if (decisions.length === 0) return 'review_required';
   const lowCount = decisions.filter((d) => d.confidence === 'low').length;
   if (lowCount === 0) return 'full';
   if (lowCount / decisions.length <= 0.2) return 'partial';
