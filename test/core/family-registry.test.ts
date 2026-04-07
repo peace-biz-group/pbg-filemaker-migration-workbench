@@ -45,12 +45,20 @@ describe('detectFamily', () => {
   it('detects customer_master from customer columns', () => {
     const result = detectFamily(['氏名', '電話番号', '住所', '会社名', '郵便番号'], createDefaultRegistry());
     expect(result.familyId).toBe('customer_master');
-    expect(result.certainty).toBe('high');
+    expect(result.certainty).toBe('low');
   });
 
   it('detects call_history from call columns', () => {
     const result = detectFamily(['通話日時', '担当者', 'コール結果', '電話番号'], createDefaultRegistry());
     expect(result.familyId).toBe('call_history');
+    expect(result.certainty).toBe('low');
+  });
+
+  it('returns low certainty for algorithmic detection', () => {
+    // Any algorithmic detection is always low — human confirmation is required for high/confirmed
+    const result = detectFamily(['氏名', '電話番号', '住所'], createDefaultRegistry());
+    expect(result.familyId).toBe('customer_master');
+    expect(result.certainty).toBe('low');
   });
 
   it('returns unknown for unrecognized columns', () => {

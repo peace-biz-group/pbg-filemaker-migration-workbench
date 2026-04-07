@@ -85,12 +85,6 @@ const DEFAULT_FAMILIES: Record<string, FamilyDefinition> = {
     threshold: 0.5,
     default_template_id: null,
   },
-  unknown: {
-    display_name: '未分類',
-    keyword_weights: {},
-    threshold: 999,
-    default_template_id: null,
-  },
 };
 
 export function createDefaultRegistry(): FamilyRegistry {
@@ -124,8 +118,7 @@ export function detectFamily(
     return { familyId: 'unknown', certainty: 'unknown', score: bestScore };
   }
 
-  const certainty: FamilyCertainty = bestScore >= def.threshold * 1.5 ? 'high' : 'low';
-  return { familyId: bestFamily as FamilyId, certainty, score: bestScore };
+  return { familyId: bestFamily as FamilyId, certainty: 'low', score: bestScore };
 }
 
 export function lookupFingerprint(
