@@ -963,12 +963,21 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
   });
 
   // --- API: Save resolution record ---
+  const VALID_RESOLUTION_TYPES = new Set([
+    'shared_phone', 'phone_exception', 'status_meaning',
+    'customer_deal_boundary', 'parent_child_classification',
+    'column_ignore', 'encoding_exception', 'merge_policy',
+  ]);
   app.post('/api/decisions/resolutions', (req, res) => {
     const record = req.body as Partial<ResolutionRecord>;
     if (!record.resolution_id || !record.resolution_type || !record.context_key) {
       res
         .status(400)
         .json({ error: 'resolution_id, resolution_type, context_key は必須です' });
+      return;
+    }
+    if (!VALID_RESOLUTION_TYPES.has(record.resolution_type as string)) {
+      res.status(400).json({ error: '不正な resolution_type です' });
       return;
     }
     let memory = loadMemory(baseOutputDir);
