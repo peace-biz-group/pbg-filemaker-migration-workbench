@@ -38,6 +38,7 @@ export async function runImportPreview(
 
   for await (const chunk of ir.records) {
     for (const row of chunk) {
+      if (totalRows >= MAX_SAMPLE_ROWS) break;
       totalRows++;
       for (const [col, val] of Object.entries(row)) {
         const v = (val ?? '').toString().trim();
