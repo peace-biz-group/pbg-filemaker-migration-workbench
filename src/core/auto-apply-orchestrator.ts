@@ -61,12 +61,15 @@ export function runAutoApplyPreview(
   const template = getTemplate(schemaFingerprint, templateRegistry);
 
   // Step 3: Apply template decisions (only confirmed / high — fail-closed for low)
+  // Only apply decisions for columns that actually exist in the input file.
   const appliedDecisions: AppliedDecision[] = [];
   const resolvedColumns = new Set<string>();
+  const inputColumnSet = new Set(columns);
 
   if (template) {
     for (const decision of template.column_decisions) {
       if (decision.confidence === 'low') continue;
+      if (!inputColumnSet.has(decision.source_col)) continue;
       appliedDecisions.push({
         sourceColumn: decision.source_col,
         canonicalField: decision.canonical_field,
@@ -94,18 +97,22 @@ export function runAutoApplyPreview(
   }
 
   // Step 4b: Apply resolution memory (column_canonical type)
+  // Family-scoped records are only applied when the current file's family matches.
   for (const col of columns) {
     if (resolvedColumns.has(col)) continue;
     const rec = lookupResolution('column_canonical', `column:${col}`, memory);
-    if (rec && shouldAutoApply(rec)) {
-      appliedDecisions.push({
-        sourceColumn: col,
-        canonicalField: rec.decision,
-        confidence: rec.certainty,
-        source: 'memory',
-      });
-      resolvedColumns.add(col);
+    if (!rec || !shouldAutoApply(rec)) continue;
+    if (rec.scope === 'family') {
+      // fail-closed: skip when family is unknown or record targets a different family
+      if (familyId === 'unknown' || rec.family_id === null || rec.family_id !== familyId) continue;
     }
+    appliedDecisions.push({
+      sourceColumn: col,
+      canonicalField: rec.decision,
+      confidence: rec.certainty,
+      source: 'memory',
+    });
+    resolvedColumns.add(col);
   }
 
   // Step 5: Collect unresolved columns

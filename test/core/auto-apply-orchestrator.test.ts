@@ -613,8 +613,28 @@ describe('runAutoApplyPreview — column_canonical', () => {
   const SEED_260312 = join(import.meta.dirname, '../../data/seeds/260312');
   const CUSTOMER_SCHEMA_FP = '1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e';
 
+  // Register file shape fingerprint for test columns so family resolves to customer_master.
+  // ['業種【小分類】', '部材名'] scores 0 in keyword_weights → would return 'unknown' without this.
+  function registerCustomerMasterFp(cols: string[], dir: string) {
+    const fp = computeFileShapeFingerprint(cols, 'utf-8', true);
+    let reg = loadFamilyRegistry(dir);
+    reg = registerFingerprint({
+      fingerprint: fp,
+      family_id: 'customer_master',
+      certainty: 'confirmed',
+      confirmed_at: '2026-04-07T00:00:00Z',
+      column_count: cols.length,
+      encoding: 'utf-8',
+      has_header: true,
+      sample_filename: 'test.csv',
+      matched_template_id: null,
+    }, reg);
+    saveFamilyRegistry(reg, dir);
+  }
+
   it('column_canonical memory record resolves an unresolved column', () => {
     loadSeedDir(SEED_260312, tmpDir);
+    registerCustomerMasterFp(['業種【小分類】', '部材名'], tmpDir);
 
     let memory = createEmptyMemory();
     memory = addResolution({
@@ -645,6 +665,7 @@ describe('runAutoApplyPreview — column_canonical', () => {
 
   it('column_canonical with certainty=low is NOT resolved (fail-closed)', () => {
     loadSeedDir(SEED_260312, tmpDir);
+    registerCustomerMasterFp(['業種【小分類】'], tmpDir);
 
     let memory = createEmptyMemory();
     memory = addResolution({
@@ -665,5 +686,193 @@ describe('runAutoApplyPreview — column_canonical', () => {
 
     const result = runAutoApplyPreview(['業種【小分類】'], 'utf-8', true, CUSTOMER_SCHEMA_FP, tmpDir);
     expect(result.unresolvedColumns).toContain('業種【小分類】');
+  });
+});
+
+describe('runAutoApplyPreview — P1-1: template columns restricted to input schema', () => {
+  it('does NOT apply template decisions for columns absent from input file', () => {
+    // Template covers A列/B列/C列 (confirmed), but input only has A列 and D列.
+    const inputCols = ['A列', 'D列'];
+    const schemaFP = computeSchemaFingerprint(inputCols);
+
+    const template: MappingTemplate = {
+      template_id: 'tmpl_partial_test',
+      family_id: 'customer_master',
+      schema_fingerprint: schemaFP,
+      version: 1,
+      created_at: '2026-04-07T00:00:00Z',
+      confirmed_at: '2026-04-07T00:00:00Z',
+      column_decisions: [
+        { source_col: 'A列', canonical_field: 'field_a', inferred_type: 'text', normalization_rule: null, confidence: 'confirmed', decided_at: '2026-04-07T00:00:00Z', decided_by: 'human' },
+        { source_col: 'B列', canonical_field: 'field_b', inferred_type: 'text', normalization_rule: null, confidence: 'confirmed', decided_at: '2026-04-07T00:00:00Z', decided_by: 'human' },
+        { source_col: 'C列', canonical_field: 'field_c', inferred_type: 'text', normalization_rule: null, confidence: 'high',      decided_at: '2026-04-07T00:00:00Z', decided_by: 'human' },
+      ],
+      auto_apply_eligibility: 'partial',
+      known_schema_fingerprints: [schemaFP],
+    };
+    let reg = createEmptyTemplateRegistry();
+    reg = upsertTemplate(template, reg);
+    saveTemplateRegistry(reg, tmpDir);
+
+    const result = runAutoApplyPreview(inputCols, ENCODING, true, schemaFP, tmpDir);
+
+    // Only A列 (present in input) → 1 applied decision
+    expect(result.appliedDecisions).toHaveLength(1);
+    expect(result.appliedDecisions[0].sourceColumn).toBe('A列');
+    // D列 is unresolved (not in template)
+    expect(result.unresolvedColumns).toContain('D列');
+    expect(result.unresolvedColumns).not.toContain('A列');
+    // B列 and C列 must not appear anywhere (not in input)
+    const allCols = [
+      ...result.appliedDecisions.map((d) => d.sourceColumn),
+      ...result.unresolvedColumns,
+    ];
+    expect(allCols).not.toContain('B列');
+    expect(allCols).not.toContain('C列');
+  });
+
+  it('low-confidence template decisions remain excluded even for columns present in input', () => {
+    const inputCols = ['A列', 'B列'];
+    const schemaFP = computeSchemaFingerprint(inputCols);
+
+    const template: MappingTemplate = {
+      template_id: 'tmpl_low_conf_test',
+      family_id: 'customer_master',
+      schema_fingerprint: schemaFP,
+      version: 1,
+      created_at: '2026-04-07T00:00:00Z',
+      confirmed_at: '2026-04-07T00:00:00Z',
+      column_decisions: [
+        { source_col: 'A列', canonical_field: 'field_a', inferred_type: 'text', normalization_rule: null, confidence: 'confirmed', decided_at: '2026-04-07T00:00:00Z', decided_by: 'human' },
+        { source_col: 'B列', canonical_field: 'field_b', inferred_type: 'text', normalization_rule: null, confidence: 'low',       decided_at: '2026-04-07T00:00:00Z', decided_by: 'auto' },
+      ],
+      auto_apply_eligibility: 'partial',
+      known_schema_fingerprints: [schemaFP],
+    };
+    let reg = createEmptyTemplateRegistry();
+    reg = upsertTemplate(template, reg);
+    saveTemplateRegistry(reg, tmpDir);
+
+    const result = runAutoApplyPreview(inputCols, ENCODING, true, schemaFP, tmpDir);
+
+    expect(result.appliedDecisions).toHaveLength(1);
+    expect(result.appliedDecisions[0].sourceColumn).toBe('A列');
+    expect(result.unresolvedColumns).toContain('B列');
+  });
+});
+
+describe('runAutoApplyPreview — P1-2: column_canonical family scope enforcement', () => {
+  const SHARED_COL = '共通列名';
+  const CANONICAL_VAL = 'shared_canonical';
+
+  function registerFamily(
+    cols: string[],
+    familyId: 'customer_master' | 'call_history',
+    dir: string,
+  ) {
+    const fp = computeFileShapeFingerprint(cols, ENCODING, true);
+    let reg = loadFamilyRegistry(dir);
+    reg = registerFingerprint({
+      fingerprint: fp,
+      family_id: familyId,
+      certainty: 'confirmed',
+      confirmed_at: '2026-04-07T00:00:00Z',
+      column_count: cols.length,
+      encoding: ENCODING,
+      has_header: true,
+      sample_filename: 'test.csv',
+      matched_template_id: null,
+    }, reg);
+    saveFamilyRegistry(reg, dir);
+  }
+
+  it('applies family-scoped column_canonical when family matches', () => {
+    registerFamily(['氏名', SHARED_COL], 'customer_master', tmpDir);
+
+    let mem = createEmptyMemory();
+    mem = addResolution({
+      resolution_id: 'scope-001',
+      resolution_type: 'column_canonical',
+      context_key: `column:${SHARED_COL}`,
+      family_id: 'customer_master',
+      decision: CANONICAL_VAL,
+      decision_detail: {},
+      certainty: 'confirmed',
+      scope: 'family',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'always',
+      source_batch_ids: [],
+    }, mem);
+    saveMemory(mem, tmpDir);
+
+    const schemaFP = computeSchemaFingerprint(['氏名', SHARED_COL]);
+    const result = runAutoApplyPreview(['氏名', SHARED_COL], ENCODING, true, schemaFP, tmpDir);
+
+    expect(result.familyId).toBe('customer_master');
+    const resolved = result.appliedDecisions.find((d) => d.sourceColumn === SHARED_COL);
+    expect(resolved).toBeDefined();
+    expect(resolved!.canonicalField).toBe(CANONICAL_VAL);
+    expect(resolved!.source).toBe('memory');
+    expect(result.unresolvedColumns).not.toContain(SHARED_COL);
+  });
+
+  it('does NOT apply family-scoped column_canonical when family differs', () => {
+    // Register SHARED_COL under call_history family
+    registerFamily(['通話日', SHARED_COL], 'call_history', tmpDir);
+
+    // Memory record is for customer_master
+    let mem = createEmptyMemory();
+    mem = addResolution({
+      resolution_id: 'scope-002',
+      resolution_type: 'column_canonical',
+      context_key: `column:${SHARED_COL}`,
+      family_id: 'customer_master',
+      decision: CANONICAL_VAL,
+      decision_detail: {},
+      certainty: 'confirmed',
+      scope: 'family',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'always',
+      source_batch_ids: [],
+    }, mem);
+    saveMemory(mem, tmpDir);
+
+    const schemaFP = computeSchemaFingerprint(['通話日', SHARED_COL]);
+    const result = runAutoApplyPreview(['通話日', SHARED_COL], ENCODING, true, schemaFP, tmpDir);
+
+    expect(result.familyId).toBe('call_history');
+    const resolved = result.appliedDecisions.find((d) => d.sourceColumn === SHARED_COL);
+    expect(resolved).toBeUndefined();
+    expect(result.unresolvedColumns).toContain(SHARED_COL);
+  });
+
+  it('does NOT apply family-scoped column_canonical when family is unknown (fail-closed)', () => {
+    // No fingerprint registration → algorithmic detection finds no match → 'unknown'
+    let mem = createEmptyMemory();
+    mem = addResolution({
+      resolution_id: 'scope-003',
+      resolution_type: 'column_canonical',
+      context_key: `column:${SHARED_COL}`,
+      family_id: 'customer_master',
+      decision: CANONICAL_VAL,
+      decision_detail: {},
+      certainty: 'confirmed',
+      scope: 'family',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'always',
+      source_batch_ids: [],
+    }, mem);
+    saveMemory(mem, tmpDir);
+
+    const schemaFP = computeSchemaFingerprint([SHARED_COL]);
+    const result = runAutoApplyPreview([SHARED_COL], ENCODING, true, schemaFP, tmpDir);
+
+    expect(result.familyId).toBe('unknown');
+    const resolved = result.appliedDecisions.find((d) => d.sourceColumn === SHARED_COL);
+    expect(resolved).toBeUndefined();
+    expect(result.unresolvedColumns).toContain(SHARED_COL);
   });
 });
