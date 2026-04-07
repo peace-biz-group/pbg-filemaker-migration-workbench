@@ -38,6 +38,7 @@ function route() {
   const path = location.pathname;
   if (path === '/new') return renderNewRun();
   if (path === '/confirm') return renderConfirmPage();
+  if (path === '/import') return renderImportPage();
   const colMatch = path.match(/^\/runs\/(.+)\/columns$/);
   if (colMatch) return renderColumnReview(colMatch[1]);
   const runMatch = path.match(/^\/runs\/(.+)$/);
@@ -86,6 +87,7 @@ async function renderDashboard() {
       <h2 style="font-size:18px">ダッシュボード</h2>
       <div class="btn-group">
         <a href="/reviews/new" class="btn">レビュー</a>
+        <a href="/import" class="btn btn-primary">ファイルを取り込む</a>
         <a href="/new" class="btn btn-primary">新規 Run</a>
       </div>
     </div>
@@ -2275,6 +2277,353 @@ function showColumnReviewSummary(runId, profileId, summary) {
       btn.textContent = '次に進む';
     }
   });
+}
+
+// --- Import page state ---
+let _importResult = null;   // ImportPreviewResult from /api/import-preview
+let _importColStatuses = {}; // col -> 'pending' | 'saved' | 'skipped'
+let _importColMeanings = {}; // col -> string (operator input)
+let _importColScopes = {};   // col -> 'session' | 'template'
+let _importSelectedCol = null;
+
+// --- Import page ---
+
+async function renderImportPage() {
+  _importResult = null;
+  _importColStatuses = {};
+  _importColMeanings = {};
+  _importColScopes = {};
+  _importSelectedCol = null;
+
+  app.innerHTML = `
+    <div style="max-width:900px;margin:0 auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 style="font-size:18px">ファイルを取り込む</h2>
+        <a href="/" class="btn">← ダッシュボード</a>
+      </div>
+
+      <div class="card" id="import-s1">
+        <h3 style="margin-bottom:12px">STEP 1 — ファイルを選ぶ</h3>
+        <div id="import-drop-zone"
+          style="border:2px dashed #d1d5db;border-radius:8px;padding:32px;text-align:center;background:#f9fafb;cursor:pointer;margin-bottom:10px">
+          <p style="color:#6b7280;margin-bottom:6px">ここにドラッグ＆ドロップ</p>
+          <p style="font-size:11px;color:#9ca3af;margin-bottom:12px">CSV または XLSX（cp932 / UTF-8 自動判定）</p>
+          <button class="btn btn-primary" onclick="document.getElementById('import-file-input').click()">ファイルを選ぶ</button>
+          <input type="file" id="import-file-input" accept=".csv,.xlsx" style="display:none">
+        </div>
+        <p style="font-size:11px;color:#9ca3af">※ファイルは変更・保存されません（参照専用）</p>
+      </div>
+
+      <div class="card" id="import-s2" style="display:none"></div>
+      <div class="card" id="import-s3" style="display:none"></div>
+      <div class="card" id="import-s4" style="display:none"></div>
+    </div>
+  `;
+
+  document.getElementById('import-file-input').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) _importProcessFile(file);
+  });
+
+  const dz = document.getElementById('import-drop-zone');
+  dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.style.background = '#eff6ff'; });
+  dz.addEventListener('dragleave', () => { dz.style.background = '#f9fafb'; });
+  dz.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dz.style.background = '#f9fafb';
+    const file = e.dataTransfer.files[0];
+    if (file) _importProcessFile(file);
+  });
+}
+
+async function _importProcessFile(file) {
+  const s2 = document.getElementById('import-s2');
+  s2.style.display = '';
+  s2.innerHTML = '<div class="loading">判定中...</div>';
+
+  const form = new FormData();
+  form.append('file', file, file.name);
+  try {
+    const result = await api('/api/import-preview', { method: 'POST', body: form });
+    _importResult = result;
+    _importColStatuses = {};
+    _importColMeanings = {};
+    _importColScopes = {};
+    result.autoApplyResult.unresolvedColumns.forEach((col) => {
+      _importColStatuses[col] = 'pending';
+      _importColMeanings[col] = '';
+      _importColScopes[col] = 'session';
+    });
+    _importSelectedCol = result.autoApplyResult.unresolvedColumns[0] ?? null;
+    _importRenderS2(result);
+    _importRenderS3(result);
+  } catch (err) {
+    s2.innerHTML = `<div class="danger-banner">エラー: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function _importRenderS2(result) {
+  const { familyId, familyCertainty } = result.autoApplyResult;
+  const applied = result.autoApplyResult.appliedDecisions.length;
+  const unresolved = result.autoApplyResult.unresolvedColumns.length;
+  const total = applied + unresolved;
+  const familyLabel = familyId === 'customer_master' ? '顧客マスタ'
+    : familyId === 'call_history' ? 'コール履歴'
+    : familyId === 'unknown' ? '不明' : escapeHtml(familyId);
+  const certBadge = familyCertainty === 'confirmed'
+    ? '<span class="badge badge-success">確定</span>'
+    : familyCertainty === 'high'
+      ? '<span class="badge badge-info">高</span>'
+      : '<span class="badge badge-warning">低</span>';
+
+  document.getElementById('import-s2').innerHTML = `
+    <h3 style="margin-bottom:12px;font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">
+      STEP 2 — 判定結果
+    </h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:10px">
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 16px;min-width:130px;text-align:center">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px">ファイル種別</div>
+        <div style="font-size:15px;font-weight:700">${familyLabel}</div>
+        <div style="margin-top:4px">${certBadge}</div>
+      </div>
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 16px;min-width:110px;text-align:center">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px">自動で判定済み</div>
+        <div style="font-size:22px;font-weight:700;color:#16a34a">${applied}</div>
+        <div style="font-size:10px;color:#9ca3af">列</div>
+      </div>
+      <div style="background:#fffbeb;border:1px solid #fde68a;border-left:3px solid #f59e0b;border-radius:6px;padding:10px 16px;min-width:110px;text-align:center">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px">要確認</div>
+        <div style="font-size:22px;font-weight:700;color:#d97706">${unresolved}</div>
+        <div style="font-size:10px;color:#9ca3af">列</div>
+      </div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 16px;min-width:110px;text-align:center">
+        <div style="font-size:11px;color:#6b7280;margin-bottom:4px">総列数</div>
+        <div style="font-size:22px;font-weight:700;color:#374151">${total}</div>
+        <div style="font-size:10px;color:#9ca3af">列</div>
+      </div>
+    </div>
+    <p style="font-size:11px;color:#6b7280">${escapeHtml(result.fileName)}（${escapeHtml(result.detectedEncoding)}）— ${result.totalRows.toLocaleString('ja-JP')} 件</p>
+  `;
+}
+
+function _importRenderS3(result) {
+  const unresolved = result.autoApplyResult.unresolvedColumns;
+  const s3 = document.getElementById('import-s3');
+  s3.style.display = '';
+
+  if (unresolved.length === 0) {
+    s3.innerHTML = `
+      <h3 style="margin-bottom:8px;font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">
+        STEP 3 — 要確認
+      </h3>
+      <p style="color:#16a34a">✔ 要確認の列はありません。すべて自動判定済みです。</p>
+    `;
+    _importRenderS4();
+    return;
+  }
+
+  s3.innerHTML = `
+    <h3 style="margin-bottom:12px;font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">
+      STEP 3 — 要確認 <span id="import-remaining-badge" style="color:#d97706">残り ${unresolved.length} 件</span>
+    </h3>
+    <div style="display:flex;gap:0;border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;min-height:320px">
+      <div id="import-left-pane" style="width:210px;border-right:1px solid #e5e7eb;background:#f9fafb;flex-shrink:0;overflow-y:auto"></div>
+      <div id="import-right-pane" style="flex:1;padding:16px"></div>
+    </div>
+  `;
+
+  _importRefreshLeftPane();
+  _importRefreshRightPane();
+}
+
+function _importRefreshLeftPane() {
+  const unresolved = _importResult.autoApplyResult.unresolvedColumns;
+  const remaining = unresolved.filter((c) => _importColStatuses[c] === 'pending').length;
+
+  document.getElementById('import-remaining-badge').textContent = `残り ${remaining} 件`;
+
+  let html = '';
+  for (const col of unresolved) {
+    const status = _importColStatuses[col];
+    const isSelected = col === _importSelectedCol;
+    const badgeHtml = status === 'saved'
+      ? '<span style="font-size:9px;color:#15803d;background:#dcfce7;padding:1px 5px;border-radius:3px">保存済</span>'
+      : status === 'skipped'
+        ? '<span style="font-size:9px;color:#9ca3af;background:#f3f4f6;padding:1px 5px;border-radius:3px">スキップ</span>'
+        : '<span style="font-size:9px;color:#6b7280;background:#e5e7eb;padding:1px 5px;border-radius:3px">未確認</span>';
+    const bg = isSelected ? 'background:#eff6ff;border-left:3px solid #3b82f6;' : 'border-left:3px solid transparent;';
+    html += `
+      <div onclick="_importSelectCol(${JSON.stringify(col)})"
+        style="padding:8px 10px;border-bottom:1px solid #f3f4f6;display:flex;justify-content:space-between;align-items:center;cursor:pointer;${bg}">
+        <span style="font-size:12px;font-weight:${isSelected ? '600' : 'normal'};color:${isSelected ? '#1d4ed8' : '#374151'}">${escapeHtml(col)}</span>
+        ${badgeHtml}
+      </div>
+    `;
+  }
+  document.getElementById('import-left-pane').innerHTML = html;
+}
+
+function _importSelectCol(col) {
+  _importSelectedCol = col;
+  _importRefreshLeftPane();
+  _importRefreshRightPane();
+}
+
+function _importRefreshRightPane() {
+  const col = _importSelectedCol;
+  const pane = document.getElementById('import-right-pane');
+  if (!col || !_importResult) {
+    pane.innerHTML = '<p style="color:#9ca3af;font-size:12px">左の一覧から列を選んでください</p>';
+    return;
+  }
+  const sample = _importResult.columnSamples[col] ?? { nonEmptyCount: 0, topValues: [] };
+  const meaning = _importColMeanings[col] ?? '';
+  const scope = _importColScopes[col] ?? 'session';
+
+  const topValuesHtml = sample.topValues.length > 0
+    ? sample.topValues.map((v) =>
+        `<span style="background:#f3f4f6;padding:3px 9px;border-radius:4px;font-size:12px">${escapeHtml(v.value)} <span style="color:#9ca3af;font-size:10px">×${v.count}</span></span>`
+      ).join(' ') + (sample.nonEmptyCount > sample.topValues.reduce((s, v) => s + v.count, 0)
+        ? `<span style="font-size:11px;color:#9ca3af"> … 他多数</span>`
+        : '')
+    : '<span style="font-size:11px;color:#9ca3af">値なし</span>';
+
+  pane.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
+      <div style="font-weight:700;font-size:16px">${escapeHtml(col)}</div>
+      <span style="font-size:11px;color:#9ca3af;padding-top:3px">値あり: ${sample.nonEmptyCount.toLocaleString('ja-JP')}件（全${_importResult.totalRows.toLocaleString('ja-JP')}件中）</span>
+    </div>
+    <p style="font-size:11px;color:#6b7280;margin-bottom:12px">この列には何が入っているか確認して、意味を入力してください。</p>
+
+    <div style="margin-bottom:12px">
+      <div style="font-size:11px;font-weight:600;color:#374151;margin-bottom:6px">実際に入っている値（出現頻度 上位5件）</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">${topValuesHtml}</div>
+    </div>
+
+    <div style="margin-bottom:12px">
+      <label style="font-size:11px;font-weight:600;color:#374151;display:block;margin-bottom:5px">この列の意味</label>
+      <input id="import-meaning-input" class="form-control" style="width:100%;padding:8px 10px;font-size:13px;border:1px solid #d1d5db;border-radius:5px;box-sizing:border-box"
+        placeholder="例: 顧客の業種（詳細）" value="${escapeHtml(meaning)}">
+    </div>
+
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:10px 12px;margin-bottom:14px">
+      <div style="font-size:11px;font-weight:600;color:#92400e;margin-bottom:7px">保存範囲</div>
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;margin-bottom:6px;font-size:12px">
+        <input type="radio" name="import-scope" value="session" ${scope === 'session' ? 'checked' : ''} onchange="_importSetScope('session')">
+        <div><strong>今回のみ適用</strong><div style="font-size:10px;color:#9ca3af">今回の判断はこのセッションだけに使用します</div></div>
+      </label>
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px">
+        <input type="radio" name="import-scope" value="template" ${scope === 'template' ? 'checked' : ''} onchange="_importSetScope('template')">
+        <div><strong>テンプレートとして保存</strong><div style="font-size:10px;color:#9ca3af">次回以降、同じファイル種別で自動的に使用されます</div></div>
+      </label>
+    </div>
+
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn btn-primary" onclick="_importSave()" style="font-size:13px;padding:8px 24px">保存</button>
+      <button class="btn" onclick="_importSkip()" style="font-size:12px;padding:8px 14px">スキップ</button>
+      <span style="font-size:10px;color:#9ca3af">スキップ = 未対応のまま次へ進みます</span>
+    </div>
+  `;
+
+  document.getElementById('import-meaning-input').addEventListener('input', (e) => {
+    _importColMeanings[_importSelectedCol] = e.target.value;
+  });
+}
+
+function _importSetScope(scope) {
+  _importColScopes[_importSelectedCol] = scope;
+}
+
+async function _importSave() {
+  const col = _importSelectedCol;
+  if (!col) return;
+  const meaning = _importColMeanings[col] ?? '';
+  const scope = _importColScopes[col] ?? 'session';
+
+  if (scope === 'template') {
+    try {
+      const record = {
+        resolution_id: crypto.randomUUID(),
+        resolution_type: 'column_canonical',
+        context_key: `column:${col}`,
+        family_id: _importResult.autoApplyResult.familyId,
+        decision: meaning,
+        decision_detail: { canonical_field: meaning, decided_via: 'import_ui' },
+        certainty: 'confirmed',
+        scope: 'family',
+        decided_at: new Date().toISOString(),
+        decided_by: 'human',
+        auto_apply_condition: 'always',
+        source_batch_ids: [],
+        notes: meaning,
+      };
+      await api('/api/decisions/resolutions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(record),
+      });
+    } catch (err) {
+      alert(`保存に失敗しました: ${err.message}`);
+      return;
+    }
+  }
+
+  _importColStatuses[col] = 'saved';
+  _importAdvanceToNext();
+}
+
+function _importSkip() {
+  const col = _importSelectedCol;
+  if (!col) return;
+  _importColStatuses[col] = 'skipped';
+  _importAdvanceToNext();
+}
+
+function _importAdvanceToNext() {
+  const unresolved = _importResult.autoApplyResult.unresolvedColumns;
+  const next = unresolved.find((c) => _importColStatuses[c] === 'pending');
+  _importSelectedCol = next ?? null;
+  _importRefreshLeftPane();
+  _importRefreshRightPane();
+
+  const allDone = unresolved.every((c) => _importColStatuses[c] !== 'pending');
+  if (allDone) _importRenderS4();
+}
+
+function _importRenderS4() {
+  const unresolved = _importResult ? _importResult.autoApplyResult.unresolvedColumns : [];
+  const applied = _importResult ? _importResult.autoApplyResult.appliedDecisions.length : 0;
+  const savedCount = unresolved.filter((c) => _importColStatuses[c] === 'saved').length;
+  const skippedCount = unresolved.filter((c) => _importColStatuses[c] === 'skipped').length;
+  const templateCount = unresolved.filter(
+    (c) => _importColStatuses[c] === 'saved' && _importColScopes[c] === 'template'
+  ).length;
+  const sessionOnlyCount = savedCount - templateCount;
+
+  const s4 = document.getElementById('import-s4');
+  s4.style.display = '';
+  s4.innerHTML = `
+    <h3 style="margin-bottom:12px;font-size:13px;font-weight:700;color:#6b7280;text-transform:uppercase;letter-spacing:.06em">完了サマリ</h3>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;padding:10px 16px;text-align:center">
+        <div style="font-size:10px;color:#6b7280">自動判定済み</div>
+        <div style="font-size:20px;font-weight:700;color:#16a34a">${applied}</div>
+      </div>
+      <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:10px 16px;text-align:center">
+        <div style="font-size:10px;color:#6b7280">テンプレートとして保存</div>
+        <div style="font-size:20px;font-weight:700;color:#2563eb">${templateCount}</div>
+      </div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 16px;text-align:center">
+        <div style="font-size:10px;color:#6b7280">今回のみ適用</div>
+        <div style="font-size:20px;font-weight:700;color:#6b7280">${sessionOnlyCount}</div>
+      </div>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:10px 16px;text-align:center">
+        <div style="font-size:10px;color:#6b7280">スキップ（未対応）</div>
+        <div style="font-size:20px;font-weight:700;color:#9ca3af">${skippedCount}</div>
+      </div>
+    </div>
+    <a href="/" class="btn btn-primary">ダッシュボードに戻る</a>
+  `;
 }
 
 // --- Init ---
