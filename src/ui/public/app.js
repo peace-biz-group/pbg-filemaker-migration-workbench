@@ -676,6 +676,11 @@ function addFiles(fileList) {
 function renderFilePreview() {
   const container = $('#file-preview');
   if (!container) return;
+
+  // Always clean up the warning, even when the list is empty
+  const existingWarn = container.parentElement ? container.parentElement.querySelector('#new-xlsx-warn') : null;
+  if (existingWarn) existingWarn.remove();
+
   if (uploadedFiles.length === 0) {
     container.innerHTML = '';
     return;
@@ -693,9 +698,6 @@ function renderFilePreview() {
   });
 
   // XLSX 大容量ガード（複数ファイルのうち1つでも該当すればまとめて警告）
-  const existingWarn = container.parentElement.querySelector('#new-xlsx-warn');
-  if (existingWarn) existingWarn.remove();
-
   if (uploadedFiles.some(f => _isLargeXlsx(f))) {
     const warn = document.createElement('div');
     warn.id = 'new-xlsx-warn';
@@ -2384,6 +2386,8 @@ async function _importProcessFile(file) {
           <button id="import-xlsx-cancel" class="btn" style="font-size:12px">キャンセル</button>
         </div>
       `;
+      const existingWarn = document.getElementById('import-xlsx-warn');
+      if (existingWarn) existingWarn.remove();
       s1.appendChild(warn);
       document.getElementById('import-xlsx-continue').onclick = () => { warn.remove(); resolve(true); };
       document.getElementById('import-xlsx-cancel').onclick  = () => { warn.remove(); resolve(false); };
