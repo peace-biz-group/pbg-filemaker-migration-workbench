@@ -15,3 +15,4 @@ _worktrees/
 .cursor/
 .mcp.json
 workbench.config.json
+artifacts/
