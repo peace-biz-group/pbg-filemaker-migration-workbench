@@ -962,7 +962,6 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
     res.json(result);
   });
 
-  // --- API: Save resolution record ---
   // --- API: Import preview (file upload → auto-apply + column samples) ---
   app.post('/api/import-preview', upload.single('file'), async (req, res) => {
     const uploaded = req.file as Express.Multer.File | undefined;

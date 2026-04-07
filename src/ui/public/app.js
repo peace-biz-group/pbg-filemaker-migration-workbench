@@ -2402,7 +2402,7 @@ function _importRenderS2(result) {
         <div style="font-size:10px;color:#9ca3af">列</div>
       </div>
     </div>
-    <p style="font-size:11px;color:#6b7280">${escapeHtml(result.fileName)}（${escapeHtml(result.detectedEncoding)}）— ${result.totalRows.toLocaleString('ja-JP')} 件</p>
+    <p style="font-size:11px;color:#6b7280">${escapeHtml(result.fileName)}（${escapeHtml(result.detectedEncoding)}）— サンプル ${result.sampledRows.toLocaleString('ja-JP')} 件</p>
   `;
 }
 
@@ -2494,7 +2494,7 @@ function _importRefreshRightPane() {
   pane.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">
       <div style="font-weight:700;font-size:16px">${escapeHtml(col)}</div>
-      <span style="font-size:11px;color:#9ca3af;padding-top:3px">値あり: ${sample.nonEmptyCount.toLocaleString('ja-JP')}件（全${_importResult.totalRows.toLocaleString('ja-JP')}件中）</span>
+      <span style="font-size:11px;color:#9ca3af;padding-top:3px">値あり: ${sample.nonEmptyCount.toLocaleString('ja-JP')}件（サンプル${_importResult.sampledRows.toLocaleString('ja-JP')}件中）</span>
     </div>
     <p style="font-size:11px;color:#6b7280;margin-bottom:12px">この列には何が入っているか確認して、意味を入力してください。</p>
 
@@ -2565,7 +2565,7 @@ async function _importSave() {
         decided_by: 'human',
         auto_apply_condition: 'always',
         source_batch_ids: [],
-        notes: meaning,
+        notes: '',
       };
       await api('/api/decisions/resolutions', {
         method: 'POST',

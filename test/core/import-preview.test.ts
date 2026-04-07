@@ -24,7 +24,7 @@ describe('runImportPreview', () => {
     const result = await runImportPreview(csvPath, 'test.csv', tmpDir);
 
     expect(result.fileName).toBe('test.csv');
-    expect(result.totalRows).toBe(5);
+    expect(result.sampledRows).toBe(5);
     expect(result.columnSamples).toHaveProperty('職業');
     const sample = result.columnSamples['職業'];
     expect(sample.nonEmptyCount).toBe(5);

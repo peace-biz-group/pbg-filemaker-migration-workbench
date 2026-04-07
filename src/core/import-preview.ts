@@ -11,7 +11,7 @@ export interface ColumnSample {
 export interface ImportPreviewResult {
   autoApplyResult: AutoApplyPreviewResult;
   columnSamples: Record<string, ColumnSample>;
-  totalRows: number;
+  sampledRows: number;
   detectedEncoding: string;
   fileName: string;
 }
@@ -34,12 +34,12 @@ export async function runImportPreview(
   // Per-column frequency counting (up to MAX_SAMPLE_ROWS to handle large files)
   const frequencies = new Map<string, Map<string, number>>();
   const nonEmptyCounts = new Map<string, number>();
-  let totalRows = 0;
+  let sampledRows = 0;
 
   for await (const chunk of ir.records) {
     for (const row of chunk) {
-      if (totalRows >= MAX_SAMPLE_ROWS) break;
-      totalRows++;
+      if (sampledRows >= MAX_SAMPLE_ROWS) break;
+      sampledRows++;
       for (const [col, val] of Object.entries(row)) {
         const v = (val ?? '').toString().trim();
         if (v) {
@@ -50,7 +50,7 @@ export async function runImportPreview(
         }
       }
     }
-    if (totalRows >= MAX_SAMPLE_ROWS) break;
+    if (sampledRows >= MAX_SAMPLE_ROWS) break;
   }
 
   const columnSamples: Record<string, ColumnSample> = {};
@@ -74,5 +74,5 @@ export async function runImportPreview(
     outputDir,
   );
 
-  return { autoApplyResult, columnSamples, totalRows, detectedEncoding, fileName };
+  return { autoApplyResult, columnSamples, sampledRows, detectedEncoding, fileName };
 }
