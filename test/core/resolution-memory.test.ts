@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -15,6 +15,9 @@ import {
 let tmpDir: string;
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), 'resolution-memory-test-'));
+});
+afterEach(() => {
+  rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe('createEmptyMemory', () => {
@@ -92,6 +95,27 @@ describe('addResolution + lookupResolution', () => {
     };
     mem = addResolution(rec, mem);
     expect(lookupResolution('status_meaning', 'phone:09012345678', mem)).toBeNull();
+  });
+
+  it('returns null for a soft-deleted record', () => {
+    let mem = createEmptyMemory();
+    const rec: ResolutionRecord = {
+      resolution_id: 'res_del',
+      resolution_type: 'shared_phone',
+      context_key: 'phone:09099999999',
+      family_id: null,
+      decision: 'keep_all',
+      decision_detail: {},
+      certainty: 'confirmed',
+      scope: 'phone_value',
+      decided_at: '2026-04-07T00:00:00Z',
+      decided_by: 'human',
+      auto_apply_condition: 'exact_match:phone_normalized',
+      source_batch_ids: [],
+      deleted_at: '2026-04-07T01:00:00Z',
+    };
+    mem = addResolution(rec, mem);
+    expect(lookupResolution('shared_phone', 'phone:09099999999', mem)).toBeNull();
   });
 });
 
