@@ -129,4 +129,29 @@ describe('POST /api/decisions/resolutions', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  it('accepts column_canonical as a valid resolution_type', async () => {
+    const record = {
+      resolution_id: 'test-canonical-api-001',
+      resolution_type: 'column_canonical',
+      context_key: 'column:業種【小分類】',
+      family_id: 'customer_master',
+      decision: 'industry_subcategory',
+      decision_detail: { canonical_field: 'industry_subcategory', decided_via: 'import_ui' },
+      certainty: 'confirmed',
+      scope: 'family',
+      decided_at: new Date().toISOString(),
+      decided_by: 'human',
+      auto_apply_condition: 'always',
+      source_batch_ids: [],
+    };
+    const res = await fetch(`${baseUrl}/api/decisions/resolutions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(record),
+    });
+    expect(res.status).toBe(200);
+    const data = await res.json() as Record<string, unknown>;
+    expect(data.ok).toBe(true);
+  });
 });

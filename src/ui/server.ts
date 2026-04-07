@@ -963,10 +963,33 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
   });
 
   // --- API: Save resolution record ---
+  // --- API: Import preview (file upload → auto-apply + column samples) ---
+  app.post('/api/import-preview', upload.single('file'), async (req, res) => {
+    const uploaded = req.file as Express.Multer.File | undefined;
+    if (!uploaded) {
+      res.status(400).json({ error: 'ファイルが指定されていません' });
+      return;
+    }
+    try {
+      const { renameSync } = await import('node:fs');
+      const fileName = decodeUploadedFilename(uploaded.originalname);
+      const dest = join(uploadDir, fileName);
+      renameSync(uploaded.path, dest);
+
+      const { runImportPreview } = await import('../core/import-preview.js');
+      const result = await runImportPreview(dest, fileName, baseOutputDir);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      res.status(500).json({ error: msg });
+    }
+  });
+
   const VALID_RESOLUTION_TYPES = new Set([
     'shared_phone', 'phone_exception', 'status_meaning',
     'customer_deal_boundary', 'parent_child_classification',
     'column_ignore', 'encoding_exception', 'merge_policy',
+    'column_canonical',
   ]);
   app.post('/api/decisions/resolutions', (req, res) => {
     const record = req.body as Partial<ResolutionRecord>;
