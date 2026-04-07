@@ -11,7 +11,10 @@ export interface ColumnSample {
 export interface ImportPreviewResult {
   autoApplyResult: AutoApplyPreviewResult;
   columnSamples: Record<string, ColumnSample>;
-  sampledRows: number;
+  /** サンプリングで読んだ行数。MAX_SAMPLE_ROWS に達した場合は全件未満になる */
+  totalRows: number;
+  /** true のとき totalRows は全件ではなくサンプルの件数（MAX_SAMPLE_ROWS 件で打ち切り） */
+  isSampled: boolean;
   detectedEncoding: string;
   fileName: string;
 }
@@ -34,12 +37,12 @@ export async function runImportPreview(
   // Per-column frequency counting (up to MAX_SAMPLE_ROWS to handle large files)
   const frequencies = new Map<string, Map<string, number>>();
   const nonEmptyCounts = new Map<string, number>();
-  let sampledRows = 0;
+  let totalRows = 0;
 
   for await (const chunk of ir.records) {
     for (const row of chunk) {
-      if (sampledRows >= MAX_SAMPLE_ROWS) break;
-      sampledRows++;
+      if (totalRows >= MAX_SAMPLE_ROWS) break;
+      totalRows++;
       for (const [col, val] of Object.entries(row)) {
         const v = (val ?? '').toString().trim();
         if (v) {
@@ -50,7 +53,7 @@ export async function runImportPreview(
         }
       }
     }
-    if (sampledRows >= MAX_SAMPLE_ROWS) break;
+    if (totalRows >= MAX_SAMPLE_ROWS) break;
   }
 
   const columnSamples: Record<string, ColumnSample> = {};
@@ -74,5 +77,5 @@ export async function runImportPreview(
     outputDir,
   );
 
-  return { autoApplyResult, columnSamples, sampledRows, detectedEncoding, fileName };
+  return { autoApplyResult, columnSamples, totalRows, isSampled: totalRows >= MAX_SAMPLE_ROWS, detectedEncoding, fileName };
 }
