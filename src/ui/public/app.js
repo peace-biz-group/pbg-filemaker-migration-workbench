@@ -2367,8 +2367,11 @@ async function renderImportPage() {
 async function _importProcessFile(file) {
   // XLSX 大容量ガード
   if (_isLargeXlsx(file)) {
+    const s1 = document.getElementById('import-s1');
+    if (!s1) return;
     const proceed = await new Promise((resolve) => {
-      const s1 = document.getElementById('import-s1');
+      const existingWarn = document.getElementById('import-xlsx-warn');
+      if (existingWarn) existingWarn.remove();
       const warn = document.createElement('div');
       warn.id = 'import-xlsx-warn';
       warn.style.cssText = 'background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:12px 14px;margin-top:10px;font-size:12px';
@@ -2386,8 +2389,6 @@ async function _importProcessFile(file) {
           <button id="import-xlsx-cancel" class="btn" style="font-size:12px">キャンセル</button>
         </div>
       `;
-      const existingWarn = document.getElementById('import-xlsx-warn');
-      if (existingWarn) existingWarn.remove();
       s1.appendChild(warn);
       document.getElementById('import-xlsx-continue').onclick = () => { warn.remove(); resolve(true); };
       document.getElementById('import-xlsx-cancel').onclick  = () => { warn.remove(); resolve(false); };
