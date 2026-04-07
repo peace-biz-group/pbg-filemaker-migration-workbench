@@ -54,7 +54,9 @@ export function lookupResolution(
 }
 
 export function addResolution(record: ResolutionRecord, memory: ResolutionMemory): ResolutionMemory {
-  const filtered = memory.resolutions.filter((r) => r.resolution_id !== record.resolution_id);
+  const filtered = memory.resolutions.filter(
+    (r) => !(r.resolution_type === record.resolution_type && r.context_key === record.context_key),
+  );
   return { ...memory, resolutions: [...filtered, record] };
 }
 
@@ -69,13 +71,13 @@ function getMemoryPath(outputDir: string): string {
   return join(outputDir, DECISIONS_DIR, MEMORY_FILE);
 }
 
-export async function saveMemory(memory: ResolutionMemory, outputDir: string): Promise<void> {
+export function saveMemory(memory: ResolutionMemory, outputDir: string): void {
   const dir = join(outputDir, DECISIONS_DIR);
   mkdirSync(dir, { recursive: true });
   writeFileSync(getMemoryPath(outputDir), JSON.stringify(memory, null, 2), 'utf-8');
 }
 
-export async function loadMemory(outputDir: string): Promise<ResolutionMemory> {
+export function loadMemory(outputDir: string): ResolutionMemory {
   const path = getMemoryPath(outputDir);
   if (!existsSync(path)) return createEmptyMemory();
   try {
