@@ -2437,10 +2437,13 @@ function _importRenderS3(result) {
 }
 
 function _importRefreshLeftPane() {
+  if (!_importResult) return;
+  const badge = document.getElementById('import-remaining-badge');
+  if (!badge) return;
   const unresolved = _importResult.autoApplyResult.unresolvedColumns;
   const remaining = unresolved.filter((c) => _importColStatuses[c] === 'pending').length;
 
-  document.getElementById('import-remaining-badge').textContent = `残り ${remaining} 件`;
+  badge.textContent = `残り ${remaining} 件`;
 
   let html = '';
   for (const col of unresolved) {
@@ -2531,6 +2534,7 @@ function _importRefreshRightPane() {
 }
 
 function _importSetScope(scope) {
+  if (!_importSelectedCol) return;
   _importColScopes[_importSelectedCol] = scope;
 }
 
@@ -2539,6 +2543,12 @@ async function _importSave() {
   if (!col) return;
   const meaning = _importColMeanings[col] ?? '';
   const scope = _importColScopes[col] ?? 'session';
+
+  if (scope === 'template' && meaning.trim() === '') {
+    alert('意味を入力してから保存してください。');
+    document.getElementById('import-meaning-input')?.focus();
+    return;
+  }
 
   if (scope === 'template') {
     try {
