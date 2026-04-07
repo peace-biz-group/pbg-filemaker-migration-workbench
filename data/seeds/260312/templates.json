@@ -816,13 +816,113 @@
         "decided_at": "2026-04-07T00:00:00Z",
         "decided_by": "auto",
         "notes": "建物築年数。値例: 15, 42, 38, 100。4684/52623 非空。全件半角整数。"
+      },
+      {
+        "source_col": "【見積】依頼日",
+        "canonical_field": "estimate_doc_request_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積書の依頼日。3115/52623 非空。全件 YYYY/MM/DD 形式。estimate_request_date（見積依頼日）と区別するため _doc_ を付与。"
+      },
+      {
+        "source_col": "【見積】到着日",
+        "canonical_field": "estimate_doc_arrival_date",
+        "inferred_type": "date",
+        "normalization_rule": "normalize_date",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積書の到着日。3071/52623 非空。全件 YYYY/MM/DD 形式。estimate_arrival_date（見積到着日）と区別するため _doc_ を付与。"
+      },
+      {
+        "source_col": "【見積】備考",
+        "canonical_field": "estimate_doc_note",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積書備考。3039/52623 非空。パネル枚数・設置条件等の自由テキスト。"
+      },
+      {
+        "source_col": "【見積】メーカー",
+        "canonical_field": "estimate_doc_manufacturer",
+        "inferred_type": "name",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "見積対象メーカー名。3137/52623 非空。Qセルズ(2243)・長州産業(634)・カナディアン(207)等。固有名詞として安定。"
+      },
+      {
+        "source_col": "リース料金",
+        "canonical_field": "lease_monthly_amount",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "リース月額（円）。1429/52623 非空。min=6700 max=189000 median=15800。太陽光設備リース月額として一貫。5件に小数点値（kW値誤入力と推定）あるが意味解釈は変わらない。"
+      },
+      {
+        "source_col": "計上粗利",
+        "canonical_field": "booked_gross_profit",
+        "inferred_type": "integer",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "計上粗利（万円）。775/52623 非空。min=0 max=122 median=27 mean=28.8。全値整数。設置kwとの相関r=0.92。万円解釈でprofit/kw中央値35,491円/kw（粗利率10-15%相当）。円・千円・%解釈はいずれも非現実的。"
+      },
+      {
+        "source_col": "職業",
+        "canonical_field": "occupation",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "職業（自由記述）。2897/52623 非空。165 unique。上位: 会社員(1127)・自営業(624)・無職(417)・農業(207)。値揺れあり（表記ゆれ・複合記述）のため enum 化せず text。"
+      },
+      {
+        "source_col": "使用者との続柄",
+        "canonical_field": "relation_to_user",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "使用者（太陽光設置先）との続柄。5190/52623 非空。14 unique。本人(5122, 98.7%)・代表取締役(36)・代表(17)他。1件に電話番号誤入力あるが意味解釈は変わらない。個人/法人の続柄混在のため enum 化せず text。"
+      },
+      {
+        "source_col": "契約者との続柄",
+        "canonical_field": "relation_to_contractor",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "契約者との続柄。2167/52623 非空。60 unique。妻(1184)・母(235)・父(146)・夫(136)・子(110)他。家族続柄が主体、一部法人役職混在。60 unique は enum には多すぎるため text。"
+      },
+      {
+        "source_col": "メーカー",
+        "canonical_field": "system_manufacturer",
+        "inferred_type": "text",
+        "normalization_rule": "trim",
+        "confidence": "high",
+        "decided_at": "2026-04-07T00:00:00Z",
+        "decided_by": "auto",
+        "notes": "主要機器メーカー名。1561/52623 非空。14 unique。Qセルズ(814)・長州産業(463)・カナディアン(250)等。太陽光パネル・蓄電池・パワコン各メーカーが混在するが「設備の主要メーカー」として意味一貫。14 unique は管理可能だが値の追加可能性があるため text。"
       }
     ],
     "auto_apply_eligibility": "partial",
     "known_schema_fingerprints": [
       "1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e"
     ],
-    "notes": "solar 260312 seed 由来。260312_顧客_太陽光.csv / .xlsx (124列、CSV と XLSX は同一列構成)。master row + portal 混在前提。全 124 列のうち代表 81 列を seed（customer canonical 74列 + portal artifact 7列）。残り 43 列は人手レビュー。内訳: 基本属性 20列 / date 系 22列 / cancel 系 3列 / status-detail 1列 / portal 7列 / 人系 6列（作成者・修正者・訪問担当者・ｱﾎﾟ担当・担当者ﾌﾘｶﾞﾅ・代表者ﾌﾘｶﾞﾅ）/ ID系 2列（申請ID・伝票番号）/ 成績・請求系 4列（成績計上日・成績計上月・請求書発行日・入金日）/ 書類・手続き系 5列（借受証発送・承諾書発送・報告書到着日・保証書着・保証申請）/ 設備フロー系 2列（平面図到着・完工報告）/ text/name 系 8列（注意事項・備考・営業コメント・工事希望・工事希望1・施工管理・販売店・設置店名）/ numeric 系 3列（設置kw・枚数・築年数）。portal 列（ｱﾎﾟﾘｽﾄ:: / ｺｰﾙ履歴:: prefix）は canonical_field=null で auto-apply 側が skip 扱いにする。auto_apply_eligibility=partial（全 seeded 列が high confidence のため、seeded 列を auto-apply し未解決列を review queue へ）。schema_fingerprint: computeSchemaFingerprint(headers) from review-bundle.ts (lowercase+trim, sort, join \\0)。算出根拠: scripts/compute-template-fingerprints-260312.ts"
+    "notes": "solar 260312 seed 由来。260312_顧客_太陽光.csv / .xlsx (124列、CSV と XLSX は同一列構成)。master row + portal 混在前提。全 124 列のうち代表 87 列を seed（customer canonical 80列 + portal artifact 7列）。残り 37 列は人手レビュー。内訳: 基本属性 20列 / date 系 22列 / cancel 系 3列 / status-detail 1列 / portal 7列 / 人系 6列（作成者・修正者・訪問担当者・ｱﾎﾟ担当・担当者ﾌﾘｶﾞﾅ・代表者ﾌﾘｶﾞﾅ）/ ID系 2列（申請ID・伝票番号）/ 成績・請求系 4列（成績計上日・成績計上月・請求書発行日・入金日）/ 書類・手続き系 5列（借受証発送・承諾書発送・報告書到着日・保証書着・保証申請）/ 設備フロー系 2列（平面図到着・完工報告）/ text/name 系 8列（注意事項・備考・営業コメント・工事希望・工事希望1・施工管理・販売店・設置店名）/ numeric 系 3列（設置kw・枚数・築年数）/ amount 系 2列（リース料金・計上粗利）/ classification 系 4列（職業・使用者との続柄・契約者との続柄・メーカー）。portal 列（ｱﾎﾟﾘｽﾄ:: / ｺｰﾙ履歴:: prefix）は canonical_field=null で auto-apply 側が skip 扱いにする。auto_apply_eligibility=partial（全 seeded 列が high confidence のため、seeded 列を auto-apply し未解決列を review queue へ）。schema_fingerprint: computeSchemaFingerprint(headers) from review-bundle.ts (lowercase+trim, sort, join \\0)。算出根拠: scripts/compute-template-fingerprints-260312.ts"
   },
   {
     "template_id": "tmpl_call_history_260312_v1",

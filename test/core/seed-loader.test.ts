@@ -461,4 +461,57 @@ describe('loadSeedDir — real data/seeds/260312 stubs', () => {
     expect(installationSite!.inferred_type).toBe('name');
     expect(installationSite!.confidence).toBe('high');
   });
+
+  it('customer_master template has estimate doc seed columns', () => {
+    const SEED_260312 = join(import.meta.dirname, '../../data/seeds/260312');
+    loadSeedDir(SEED_260312, outputDir);
+
+    const reg = loadTemplateRegistry(outputDir);
+    const template = getTemplate(
+      '1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e',
+      reg,
+    );
+    expect(template).not.toBeNull();
+    // 81（前回）+ 4（見積書系）= 85
+    expect(template!.column_decisions.length).toBeGreaterThanOrEqual(85);
+
+    const reqDate = template!.column_decisions.find((d) => d.source_col === '【見積】依頼日');
+    expect(reqDate!.canonical_field).toBe('estimate_doc_request_date');
+    expect(reqDate!.inferred_type).toBe('date');
+    expect(reqDate!.confidence).toBe('high');
+
+    const arrivalDate = template!.column_decisions.find((d) => d.source_col === '【見積】到着日');
+    expect(arrivalDate!.canonical_field).toBe('estimate_doc_arrival_date');
+    expect(arrivalDate!.inferred_type).toBe('date');
+    expect(arrivalDate!.confidence).toBe('high');
+
+    const docNote = template!.column_decisions.find((d) => d.source_col === '【見積】備考');
+    expect(docNote!.canonical_field).toBe('estimate_doc_note');
+    expect(docNote!.inferred_type).toBe('text');
+    expect(docNote!.confidence).toBe('high');
+
+    const manufacturer = template!.column_decisions.find((d) => d.source_col === '【見積】メーカー');
+    expect(manufacturer!.canonical_field).toBe('estimate_doc_manufacturer');
+    expect(manufacturer!.inferred_type).toBe('name');
+    expect(manufacturer!.confidence).toBe('high');
+  });
+
+  it('customer_master template has amount seed columns (lease_monthly_amount)', () => {
+    const SEED_260312 = join(import.meta.dirname, '../../data/seeds/260312');
+    loadSeedDir(SEED_260312, outputDir);
+
+    const reg = loadTemplateRegistry(outputDir);
+    const template = getTemplate(
+      '1a94d6a044c75c2cba52cd7fa95d6e6fd66365ff00c96572dc37e8eb4b53706e',
+      reg,
+    );
+    expect(template).not.toBeNull();
+    // 85（前回）+ 1（リース料金）= 86
+    expect(template!.column_decisions.length).toBeGreaterThanOrEqual(86);
+
+    const lease = template!.column_decisions.find((d) => d.source_col === 'リース料金');
+    expect(lease!.canonical_field).toBe('lease_monthly_amount');
+    expect(lease!.inferred_type).toBe('integer');
+    expect(lease!.confidence).toBe('high');
+  });
 });
