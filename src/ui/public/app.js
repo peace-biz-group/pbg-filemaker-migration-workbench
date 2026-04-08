@@ -2040,7 +2040,6 @@ async function renderColumnReview(runId) {
     const existing = existingReview?.find(r => r.position === i);
     const samples = previewRows.slice(0, 5).map(r => r[col]).filter(Boolean);
     const inferredKey = profileCol?.key || inferSafeCanonicalKey(col);
-    const existingInUse = existing?.inUse === 'yes' && !inferredKey ? 'unknown' : existing?.inUse;
 
     return {
       position: i,
@@ -2051,8 +2050,7 @@ async function renderColumnReview(runId) {
       profileRule: profileCol?.rule || '',
       samples,
       meaning: existing?.meaning ?? profileCol?.label ?? inferMeaningFromColumnName(col),
-      inUse: existingInUse ?? (inferredKey ? 'yes' : 'unknown'),
-      required: existing?.required ?? (profileCol ? (profileCol.required ? 'yes' : 'no') : 'unknown'),
+      inUse: existing?.inUse === 'yes' ? 'yes' : (existing?.inUse === 'no' ? 'no' : (inferredKey ? 'yes' : '')),
       rule: existing?.rule ?? profileCol?.rule ?? '',
     };
   });
@@ -2084,7 +2082,7 @@ async function renderColumnReview(runId) {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="font-size:18px">列の確認</h2>
       <div class="btn-group">
-        <button class="btn btn-primary" id="save-review-btn">保存</button>
+        <button class="btn btn-primary" id="save-review-btn">確認を保存する</button>
         <a href="/runs/${escapeHtml(runId)}" class="btn">あとで続ける</a>
       </div>
     </div>
@@ -2101,62 +2099,122 @@ async function renderColumnReview(runId) {
       </p>
   `;
 
+  html += '<div class="column-review-grid">';
   for (const entry of entries) {
+    const cardClass = entry.inUse === 'yes' ? 'used' : entry.inUse === 'no' ? 'unused' : 'unanswered';
+    const isUnused = entry.inUse === 'no';
     const isNewCol = driftCtx?.addedColumns?.includes(entry.headerName) ?? false;
     html += `
-      <div class="column-review-item" data-position="${entry.position}">
+      <div class="column-review-item ${cardClass}" data-position="${entry.position}">
         <div class="column-review-header">
           <span class="badge badge-info">${entry.position + 1}列目</span>
           <strong>${escapeHtml(entry.headerName)}</strong>
           ${isNewCol ? '<span class="badge badge-warning" style="margin-left:4px">新しい列</span>' : ''}
+          ${entry.inUse === '' ? '<span class="badge" style="background:#fef3c7;color:#d97706;margin-left:4px">未回答</span>' : ''}
           ${entry.profileLabel ? `<span style="font-size:12px;color:var(--text-secondary)">（候補: ${escapeHtml(entry.profileLabel)}）</span>` : ''}
         </div>
 
         ${entry.samples.length > 0 ? `
-          <div style="margin:6px 0 8px 0;font-size:12px;color:var(--text-secondary)">
-            例: ${entry.samples.slice(0, 3).map(s => `<code style="background:var(--bg);padding:1px 4px;border-radius:2px">${escapeHtml(truncate(s, 30))}</code>`).join(', ')}
+          <div style="margin:4px 0 8px 0;font-size:11px;color:var(--text-secondary)">
+            例: ${entry.samples.slice(0, 3).map(s => '<code style="background:var(--bg);padding:1px 4px;border-radius:2px">' + escapeHtml(truncate(s, 30)) + '</code>').join(', ')}
           </div>
         ` : ''}
 
-        <div class="column-review-fields">
-          <div class="column-review-field">
-            <label>この列は何を入れる場所ですか？（自由記入）</label>
-            <input type="text" class="col-meaning" value="${escapeHtml(entry.meaning)}" placeholder="例: 会社名、電話番号 など">
+        <div class="column-review-inputs">
+          <div>
+            <label>何を入力する列？</label>
+            <input type="text" class="col-meaning" value="${escapeHtml(entry.meaning)}" placeholder="例: 会社名、電話番号" ${isUnused ? 'disabled' : ''}>
           </div>
-          <div class="column-review-field">
-            <label>今も使いますか？</label>
-            <div class="choice-row">
-              <label class="choice-chip"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="yes" ${entry.inUse === 'yes' ? 'checked' : ''}> はい</label>
-              <label class="choice-chip"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> いいえ</label>
-              <label class="choice-chip choice-chip-wide"><input type="radio" name="inuse-${entry.position}" class="col-inuse" value="unknown" ${entry.inUse === 'unknown' ? 'checked' : ''}> わからない</label>
-            </div>
-          </div>
-          <div class="column-review-field">
-            <label>必須ですか？</label>
-            <div class="choice-row">
-              <label class="choice-chip"><input type="radio" name="required-${entry.position}" class="col-required" value="yes" ${entry.required === 'yes' ? 'checked' : ''}> はい</label>
-              <label class="choice-chip"><input type="radio" name="required-${entry.position}" class="col-required" value="no" ${entry.required === 'no' ? 'checked' : ''}> いいえ</label>
-              <label class="choice-chip choice-chip-wide"><input type="radio" name="required-${entry.position}" class="col-required" value="unknown" ${entry.required === 'unknown' ? 'checked' : ''}> わからない</label>
-            </div>
-          </div>
-          <div class="column-review-field">
-            <label>入力ルールがありますか？</label>
-            <input type="text" class="col-rule" value="${escapeHtml(entry.rule)}" placeholder="例: 半角数字のみ、日付形式 など">
+          <div>
+            <label>入力規則・選択肢</label>
+            <input type="text" class="col-rule" value="${escapeHtml(entry.rule)}" placeholder="例: 半角数字のみ、選択肢名" ${isUnused ? 'disabled' : ''}>
           </div>
         </div>
+
+        <div class="use-toggle">
+          <label class="${entry.inUse === 'yes' ? 'active-yes' : ''}">
+            <input type="radio" name="inuse-${entry.position}" class="col-inuse" value="yes" ${entry.inUse === 'yes' ? 'checked' : ''}> 使う
+          </label>
+          <label class="${entry.inUse === 'no' ? 'active-no' : ''}">
+            <input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> 使わない
+          </label>
+        </div>
+        ${entry.inUse === '' ? '<div style="font-size:10px;color:#d97706;margin-top:4px">※ 選ばないと「使わない」扱いになります</div>' : ''}
       </div>
     `;
   }
+  html += '</div>';
+
+    const usedCount = entries.filter(e => e.inUse === 'yes').length;
+    const unusedCount = entries.filter(e => e.inUse === 'no').length;
+    const unansweredCount = entries.filter(e => e.inUse !== 'yes' && e.inUse !== 'no').length;
+    html += `
+      <div class="column-summary-bar">
+        <div class="summary-counts">
+          <span><span class="summary-dot" style="background:#16a34a"></span>使う: <strong>${usedCount}</strong></span>
+          <span><span class="summary-dot" style="background:#9ca3af"></span>使わない: <strong>${unusedCount}</strong></span>
+          <span><span class="summary-dot" style="background:#f59e0b"></span>未回答: <strong>${unansweredCount}</strong></span>
+        </div>
+        <button class="btn btn-primary" id="save-review-btn-summary">確認を保存する</button>
+      </div>
+    `;
 
   html += `
     </div>
     <div style="display:flex;gap:8px;margin-top:16px">
-      <button class="btn btn-primary" id="save-review-btn-bottom">保存して結果を見る</button>
+      <button class="btn btn-primary" id="save-review-btn-bottom">確認を保存する</button>
       <a href="/runs/${escapeHtml(runId)}" class="btn">あとで続ける</a>
     </div>
   `;
 
   app.innerHTML = html;
+
+  // Use toggle interaction
+  document.querySelectorAll('.use-toggle input[type="radio"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      const card = e.target.closest('.column-review-item');
+      if (!card) return;
+      const value = e.target.value;
+
+      card.classList.remove('used', 'unused', 'unanswered');
+      card.classList.add(value === 'yes' ? 'used' : 'unused');
+
+      card.querySelectorAll('.use-toggle label').forEach(lbl => {
+        lbl.classList.remove('active-yes', 'active-no');
+      });
+      e.target.closest('label').classList.add(value === 'yes' ? 'active-yes' : 'active-no');
+
+      card.querySelectorAll('.column-review-inputs input').forEach(inp => {
+        inp.disabled = (value === 'no');
+      });
+
+      const hint = card.querySelector('div[style*="color:#d97706"]');
+      if (hint && hint.textContent.includes('選ばないと')) hint.remove();
+      const unansweredBadge = card.querySelector('.badge[style*="fef3c7"]');
+      if (unansweredBadge) unansweredBadge.remove();
+
+      updateSummaryBar();
+    });
+  });
+
+  function updateSummaryBar() {
+    const items = document.querySelectorAll('.column-review-item');
+    let used = 0, unused = 0, unanswered = 0;
+    items.forEach(item => {
+      const checked = item.querySelector('.col-inuse:checked');
+      if (checked?.value === 'yes') used++;
+      else if (checked?.value === 'no') unused++;
+      else unanswered++;
+    });
+    const countsEl = document.querySelector('.summary-counts');
+    if (countsEl) {
+      countsEl.innerHTML = `
+        <span><span class="summary-dot" style="background:#16a34a"></span>使う: <strong>${used}</strong></span>
+        <span><span class="summary-dot" style="background:#9ca3af"></span>使わない: <strong>${unused}</strong></span>
+        <span><span class="summary-dot" style="background:#f59e0b"></span>未回答: <strong>${unanswered}</strong></span>
+      `;
+    }
+  }
 
   // Save review handler
   const saveHandler = async () => {
@@ -2169,8 +2227,8 @@ async function renderColumnReview(runId) {
         label: columns[pos] || '',
         key: entries[pos]?.profileKey || '',
         meaning: item.querySelector('.col-meaning')?.value || '',
-        inUse: item.querySelector('.col-inuse:checked')?.value || 'yes',
-        required: item.querySelector('.col-required:checked')?.value || 'yes',
+        inUse: item.querySelector('.col-inuse:checked')?.value || 'no',
+        required: 'unknown',
         rule: item.querySelector('.col-rule')?.value || '',
       });
     });
@@ -2194,6 +2252,7 @@ async function renderColumnReview(runId) {
 
   document.getElementById('save-review-btn')?.addEventListener('click', saveHandler);
   document.getElementById('save-review-btn-bottom')?.addEventListener('click', saveHandler);
+  document.getElementById('save-review-btn-summary')?.addEventListener('click', saveHandler);
 }
 
 // --- 列の確認保存後のサマリ表示 ---
