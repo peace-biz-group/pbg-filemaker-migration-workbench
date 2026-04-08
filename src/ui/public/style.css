@@ -430,86 +430,155 @@ tr:hover td { background: #f0f4ff; }
   margin-bottom: 8px;
   font-size: 14px;
 }
-.column-review-fields {
+/* Column review — 2-column card grid */
+.column-review-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 1.2fr) minmax(220px, 1fr) minmax(220px, 1fr) minmax(260px, 1.1fr);
-  gap: 6px 8px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
-.column-review-field {
-  min-width: 0;
+
+/* Column review — input pair (meaning + rule) */
+.column-review-inputs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 8px;
 }
-.column-review-field label {
+
+.column-review-inputs label {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   margin-bottom: 3px;
 }
-.column-review-field input,
-.column-review-field select {
+
+.column-review-inputs input {
   width: 100%;
-  padding: 6px 10px;
+  padding: 5px 8px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  font-size: 13px;
+  font-size: 12px;
   font-family: inherit;
+  box-sizing: border-box;
 }
 
-.choice-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(7.25rem, 1fr));
+.column-review-inputs input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+/* Use / Don't use toggle */
+.use-toggle {
+  display: flex;
   gap: 8px;
-  font-size: 13px;
 }
 
-.choice-row label,
-.choice-chip {
+.use-toggle label {
+  flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
-  min-width: 0;
-  width: 100%;
-  padding: 5px 8px;
+  padding: 8px 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
-  box-sizing: border-box;
-}
-.choice-chip input[type="radio"] {
-  margin: 0;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-/* 列の確認: はい / いいえ / わからない を1行（折り返しで縦に伸びない） */
-.column-review-field .choice-row {
-  display: flex;
-  flex-flow: row nowrap;
-  gap: 6px;
-  align-items: stretch;
-  overflow-x: auto;
-  max-width: 100%;
-}
-.column-review-field .choice-row .choice-chip {
-  flex: 0 0 auto;
-  width: auto;
-  white-space: nowrap;
-  justify-content: center;
-}
-
-@media (max-width: 1200px) {
-  .column-review-fields { grid-template-columns: 1fr 1fr; }
-}
-.column-review-field input:focus,
-.column-review-field select:focus {
-  outline: none;
+.use-toggle label:hover {
   border-color: var(--primary);
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.use-toggle .active-yes {
+  border: 2px solid var(--success);
+  background: #dcfce7;
+  font-weight: 700;
+  color: #15803d;
+}
+
+.use-toggle .active-no {
+  border: 2px solid #6b7280;
+  background: #f3f4f6;
+  font-weight: 700;
+  color: #374151;
+}
+
+/* Unused card greyed out */
+.column-review-item.unused {
+  opacity: 0.65;
+  background: #fafafa;
+  border-color: var(--border);
+}
+
+.column-review-item.unused input:disabled {
+  color: #d1d5db;
+  background: #f9fafb;
+}
+
+/* Active (used) card */
+.column-review-item.used {
+  border: 2px solid var(--success);
+  background: #fafffe;
+}
+
+/* Unanswered card */
+.column-review-item.unanswered {
+  border: 1px solid #fde68a;
+  background: #fffdf7;
+}
+
+/* Summary bar */
+.column-summary-bar {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--bg);
+  border-radius: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.column-summary-bar .summary-counts {
+  display: flex;
+  gap: 20px;
+  font-size: 13px;
+}
+
+.column-summary-bar .summary-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
+/* Header row card style for new run page */
+.header-row-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  margin-bottom: 16px;
+}
+
+.header-row-card input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .preview-grid { grid-template-columns: 1fr; }
-  .column-review-fields { grid-template-columns: 1fr; }
+  .column-review-grid { grid-template-columns: 1fr; }
+  .column-review-inputs { grid-template-columns: 1fr; }
   header { padding: 0 12px; gap: 16px; }
   main { padding: 0 12px; }
 }
