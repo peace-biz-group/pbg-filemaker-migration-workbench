@@ -38,6 +38,7 @@ import {
 } from '../core/review-bundle.js';
 import { loadMemory, addResolution, saveMemory } from '../core/resolution-memory.js';
 import { runAutoApplyPreview } from '../core/auto-apply-orchestrator.js';
+import { enrichRoutingDecisionWithFamily } from '../core/source-routing.js';
 import type { ResolutionRecord } from '../core/resolution-memory.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -119,7 +120,7 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
 
   // --- Pages (serve index.html for all page routes) ---
   const indexHtml = join(__dirname, 'public', 'index.html');
-  for (const route of ['/', '/new', '/confirm', '/runs/:id', '/runs/:id/columns']) {
+  for (const route of ['/', '/new', '/confirm', '/import', '/history', '/runs/:id', '/runs/:id/columns']) {
     app.get(route, (_req, res) => {
       res.sendFile(indexHtml);
     });
@@ -555,9 +556,21 @@ export function createApp(baseOutputDir: string, bundleDir?: string) {
       const isHeaderless = ir.diagnosis.headerApplied === false;
       // 実際の列数（ヘッダーなしでも ingest 後に確定している）
       const actualColumnCount = ir.columns.length;
+
+      // FamilyRegistry でファミリーを事前解決し、matchProfile のスコアブーストに使う
+      const appliedEncoding =
+        ir.diagnosis.format === 'csv' ? ir.diagnosis.appliedEncoding : 'utf8';
+      const { familyId: knownFamilyId } = enrichRoutingDecisionWithFamily(
+        ir.columns,
+        appliedEncoding,
+        ir.diagnosis.headerApplied,
+        baseOutputDir,
+      );
+
       const profileMatch = matchProfile(readableName, ir.columns, {
         isHeaderless,
         columnCount: actualColumnCount,
+        knownFamilyId: knownFamilyId !== 'unknown' ? knownFamilyId : null,
       });
 
       res.json({

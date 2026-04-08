@@ -47,6 +47,7 @@ function route() {
   if (path === '/new') return renderNewRun();
   if (path === '/confirm') return renderConfirmPage();
   if (path === '/import') return renderImportPage();
+  if (path === '/history') return renderHistory();
   const colMatch = path.match(/^\/runs\/(.+)\/columns$/);
   if (colMatch) return renderColumnReview(colMatch[1]);
   const runMatch = path.match(/^\/runs\/(.+)$/);
@@ -91,15 +92,95 @@ async function api(url, opts) {
 
 async function renderDashboard() {
   app.innerHTML = `
+    <div style="max-width:800px;margin:0 auto">
+      <h2 style="font-size:20px;margin-bottom:16px">はじめに</h2>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3 style="font-size:16px;margin-bottom:12px">このシステムでやること</h3>
+        <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
+          FileMaker に入っているデータを、新しいシステムに移すための準備をします。
+        </p>
+        <p style="font-size:14px;line-height:1.8;margin-bottom:0">
+          まず FileMaker からファイルを出して、このシステムに読み込ませます。<br>
+          そのあと、どの列（項目）を使うかを確認します。
+        </p>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3 style="font-size:16px;margin-bottom:12px">手順</h3>
+        <div style="font-size:14px;line-height:2">
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+            <span style="background:#2563eb;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">1</span>
+            <div>
+              <strong>FileMaker でファイルを開く</strong><br>
+              <span style="color:var(--text-secondary);font-size:13px">対象のファイルを開きます。検索せずに、全件が表示されている状態にしてください。</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+            <span style="background:#2563eb;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">2</span>
+            <div>
+              <strong>エクスポートする</strong><br>
+              <span style="color:var(--text-secondary);font-size:13px">
+                メニューから「ファイル」→「レコードのエクスポート」を選びます。<br>
+                ファイル形式は <strong>Excel (.xlsx)</strong> を選んでください。<br>
+                ファイル名は <strong>今日の日付_ファイル名</strong> にしてください。<br>
+                （例: 2026-04-08_顧客管理_福岡.xlsx）
+              </span>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+            <span style="background:#2563eb;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">3</span>
+            <div>
+              <strong>全ての列を選ぶ</strong><br>
+              <span style="color:var(--text-secondary);font-size:13px">
+                エクスポートの画面で「すべて移動」をクリックして、<br>
+                右側に全ての項目を移してからエクスポートしてください。
+              </span>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:10px">
+            <span style="background:#2563eb;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">4</span>
+            <div>
+              <strong>エクスポートが終わるまで待つ</strong><br>
+              <span style="color:var(--text-secondary);font-size:13px">データ量が多いと時間がかかります。終わるまでそのまま待ってください。</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:12px;align-items:flex-start">
+            <span style="background:#16a34a;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">5</span>
+            <div>
+              <strong>このシステムに読み込ませる</strong><br>
+              <span style="color:var(--text-secondary);font-size:13px">下のボタンからファイルを読み込んでください。</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" style="text-align:center;padding:24px">
+        <p style="font-size:15px;font-weight:600;margin-bottom:16px">ファイルの準備ができたら、ここから始めてください</p>
+        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
+          <a href="/import" class="btn btn-primary" style="font-size:15px;padding:12px 28px">ファイルを取り込む</a>
+          <a href="/new" class="btn" style="font-size:15px;padding:12px 28px">新しく読み込む</a>
+        </div>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:12px">
+          <a href="/history" style="color:var(--text-secondary)">過去の実行履歴を見る →</a>
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+// --- History page (実行履歴) ---
+
+async function renderHistory() {
+  app.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="font-size:18px">ダッシュボード</h2>
+      <h2 style="font-size:18px">実行履歴</h2>
       <div class="btn-group">
         <a href="/import" class="btn btn-primary">ファイルを取り込む</a>
-        <a href="/new" class="btn btn-primary">新しく読み込む</a>
+        <a href="/new" class="btn">新しく読み込む</a>
       </div>
     </div>
     <div class="card" id="run-list-card">
-      <h3>最近の作業</h3>
       <div class="loading">読み込み中...</div>
     </div>
     <div class="card" id="review-list-card" style="display:none">
@@ -114,15 +195,26 @@ async function renderDashboard() {
     if (runs.length === 0) {
       container.innerHTML = `
         <div class="empty">
-          <p>まだ作業がありません</p>
+          <p>まだ実行履歴がありません</p>
           <a href="/new" class="btn btn-primary" style="margin-top:12px">ファイルを読み込む</a>
         </div>
       `;
       return;
     }
 
-    let html = '<div class="run-list">';
+    // 同じ入力ファイルの run をグループ化し、最新のみ表示
+    const latestByFile = new Map();
     for (const run of runs) {
+      const fileKey = run.inputFiles.map(f => f.split('/').pop()).sort().join('|');
+      const existing = latestByFile.get(fileKey);
+      if (!existing || new Date(run.startedAt) > new Date(existing.startedAt)) {
+        latestByFile.set(fileKey, run);
+      }
+    }
+    const uniqueRuns = Array.from(latestByFile.values());
+
+    let html = '<div class="run-list">';
+    for (const run of uniqueRuns) {
       let statusHtml;
       let ctaHtml = '';
       if (run.status === 'failed') {
@@ -156,8 +248,9 @@ async function renderDashboard() {
       `;
     }
     html += '</div>';
-    container.innerHTML = `<h3>最近の作業 (${runs.length}件)</h3>` + html;
-    // Load reviews for dashboard
+    container.innerHTML = `<h3>実行履歴 (${uniqueRuns.length}件)</h3>` + html;
+
+    // Load reviews
     try {
       const reviews = await api('/api/reviews');
       if (reviews.length > 0) {
