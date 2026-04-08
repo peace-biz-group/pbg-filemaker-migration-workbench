@@ -819,7 +819,7 @@ async function renderRunDetail(runId) {
           <div class="btn-group">
             <button class="btn btn-primary" id="btn-start-review-from-run" title="列の確認を開始">列の確認</button>
             <button class="btn" id="btn-rerun" title="同じ設定で再実行">もう一度実行</button>
-            <button class="btn btn-danger" id="btn-delete" title="この Run を削除">削除</button>
+            <button class="btn btn-danger" id="btn-delete" title="この作業を削除">削除</button>
           </div>
         </div>
     `;
@@ -927,7 +927,7 @@ async function renderRunDetail(runId) {
 
     // Delete button
     document.getElementById('btn-delete').addEventListener('click', async () => {
-      if (!confirm('この Run を削除しますか？')) return;
+      if (!confirm('この作業を削除しますか？')) return;
       try {
         await api(`/api/runs/${runId}`, { method: 'DELETE' });
         navigate('/');
@@ -2023,7 +2023,7 @@ async function renderColumnReview(runId) {
       <div class="card">
         <h2>列情報が見つかりません</h2>
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">
-          この Run の列情報がまだ保存されていません。<br>
+          列の情報がまだ保存されていません。<br>
           ファイルをアップロードして確認してから進めてください。
         </p>
         <a href="/" class="btn">ダッシュボードに戻る</a>
@@ -2108,7 +2108,7 @@ async function renderColumnReview(runId) {
           <span class="badge badge-info">${entry.position + 1}列目</span>
           <strong>${escapeHtml(entry.headerName)}</strong>
           ${isNewCol ? '<span class="badge badge-warning" style="margin-left:4px">新しい列</span>' : ''}
-          ${entry.inUse === '' ? '<span class="badge" style="background:#fef3c7;color:#d97706;margin-left:4px">未回答</span>' : ''}
+          ${entry.inUse === '' ? '<span class="badge unanswered-badge" style="background:#fef3c7;color:#d97706;margin-left:4px">未回答</span>' : ''}
           ${entry.profileLabel ? `<span style="font-size:12px;color:var(--text-secondary)">（候補: ${escapeHtml(entry.profileLabel)}）</span>` : ''}
         </div>
 
@@ -2137,7 +2137,7 @@ async function renderColumnReview(runId) {
             <input type="radio" name="inuse-${entry.position}" class="col-inuse" value="no" ${entry.inUse === 'no' ? 'checked' : ''}> 使わない
           </label>
         </div>
-        ${entry.inUse === '' ? '<div style="font-size:10px;color:#d97706;margin-top:4px">※ 選ばないと「使わない」扱いになります</div>' : ''}
+        ${entry.inUse === '' ? '<div class="unanswered-hint" style="font-size:10px;color:#d97706;margin-top:4px">※ 選ばないと「使わない」扱いになります</div>' : ''}
       </div>
     `;
   }
@@ -2186,9 +2186,9 @@ async function renderColumnReview(runId) {
         inp.disabled = (value === 'no');
       });
 
-      const hint = card.querySelector('div[style*="color:#d97706"]');
-      if (hint && hint.textContent.includes('選ばないと')) hint.remove();
-      const unansweredBadge = card.querySelector('.badge[style*="fef3c7"]');
+      const hint = card.querySelector('.unanswered-hint');
+      if (hint) hint.remove();
+      const unansweredBadge = card.querySelector('.unanswered-badge');
       if (unansweredBadge) unansweredBadge.remove();
 
       updateSummaryBar();
