@@ -107,17 +107,17 @@ async function renderDashboard() {
       <div class="card" style="margin-bottom:20px">
         <h3 style="font-size:16px;margin-bottom:12px">福岡の皆さんへのお願い</h3>
         <p style="font-size:14px;line-height:1.8;margin-bottom:12px">
-          <strong>毎週金曜日に、FileMaker のデータをエクスポートして送ってください。</strong><br>
-          作業は30分もかかりません。下の「手順」のとおりにやるだけです。
+          <strong>毎週金曜日に、FileMaker のデータをエクスポートしてください。</strong><br>
+          作業は30分もかかりません。下の「手順」のとおりにやるだけです。<br>
+          エクスポートしたファイルはこのシステムにそのまま読み込ませてください。
         </p>
 
         <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-bottom:10px">
           <p style="font-size:14px;font-weight:700;color:#15803d;margin:0 0 6px 0">なぜ毎週やると良いのか</p>
           <p style="font-size:13px;line-height:1.8;margin:0">
-            初回だけ「この列を使う？使わない？」の確認が必要ですが、<br>
-            <strong>2回目からは設定が残っているので、出すだけでOKです。</strong><br>
-            毎週出してもらえると、移行当日に「初めて見るデータ」がなくなり、<br>
-            トラブルなく移行できます。
+            初回だけ、各項目を新しいシステムでも使うかどうかの確認が必要ですが、<br>
+            <strong>2回目からは前回の設定が残っているので、出すだけでOKです。</strong><br>
+            毎週出してもらえると、移行当日に想定外のことが起きにくくなります。
           </p>
         </div>
 
@@ -193,7 +193,11 @@ async function renderDashboard() {
             <span style="background:#16a34a;color:#fff;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">5</span>
             <div>
               <strong>このシステムに読み込ませる</strong><br>
-              <span style="color:var(--text-secondary);font-size:13px">下のボタンからファイルを読み込んでください。</span>
+              <span style="color:var(--text-secondary);font-size:13px">
+                この画面の一番下にある「はじめてのファイル」ボタンを押して、<br>
+                エクスポートしたファイルを選んでください。<br>
+                2回目以降は「2回目以降のファイル」を使うと自動で処理されます。
+              </span>
             </div>
           </div>
         </div>
@@ -335,8 +339,8 @@ async function renderHistory() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="font-size:18px">実行履歴</h2>
       <div class="btn-group">
-        <a href="/import" class="btn btn-primary">ファイルを取り込む</a>
-        <a href="/new" class="btn">新しく読み込む</a>
+        <a href="/new" class="btn btn-primary">はじめてのファイル</a>
+        <a href="/import" class="btn">2回目以降のファイル</a>
       </div>
     </div>
     <div class="card" id="run-list-card">
@@ -462,32 +466,13 @@ async function renderNewRun() {
         <input type="hidden" name="configPath" value="">
 
         <div class="form-group">
-          <label>入力ファイル</label>
+          <label style="font-size:14px;font-weight:600">エクスポートしたファイルを選んでください</label>
           <div class="drop-zone" id="drop-zone">
-            <p>CSV / XLSX ファイルをここにドロップ<br>またはクリックしてファイルを選択</p>
+            <p>ファイルをここにドラッグ＆ドロップ<br>またはクリックして選択</p>
             <input type="file" id="file-input" multiple accept=".csv,.xlsx" style="display:none">
             <div class="file-list-preview" id="file-preview"></div>
           </div>
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-          <div class="form-group" style="margin-bottom:0">
-            <label>文字コード</label>
-            <select name="encoding">
-              <option value="auto" selected>自動検出（通常はこのまま）</option>
-              <option value="cp932">Shift-JIS (CP932)</option>
-              <option value="utf8">UTF-8</option>
-            </select>
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label>区切り文字</label>
-            <select name="delimiter">
-              <option value="auto">自動検出（通常はこのまま）</option>
-              <option value=",">カンマ (,)</option>
-              <option value="\\t">タブ</option>
-              <option value=";">セミコロン (;)</option>
-            </select>
-          </div>
+          <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">XLSX または CSV ファイルに対応しています</p>
         </div>
 
         <div class="header-row-card">
@@ -499,12 +484,31 @@ async function renderNewRun() {
         </div>
 
         <details style="margin-bottom:16px">
-          <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer">ローカルパスを直接指定する場合</summary>
+          <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer">詳細設定（通常は変更不要）</summary>
           <div style="margin-top:8px">
-            <textarea name="filePaths" placeholder="1行に1ファイルパスを入力" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"></textarea>
-            <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-              このパソコンから読み取れるファイルの場所を入力してください
-            </p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+              <div class="form-group" style="margin-bottom:0">
+                <label>文字コード</label>
+                <select name="encoding">
+                  <option value="auto" selected>自動検出（通常はこのまま）</option>
+                  <option value="cp932">Shift-JIS (CP932)</option>
+                  <option value="utf8">UTF-8</option>
+                </select>
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label>区切り文字</label>
+                <select name="delimiter">
+                  <option value="auto">自動検出（通常はこのまま）</option>
+                  <option value=",">カンマ (,)</option>
+                  <option value="\\t">タブ</option>
+                  <option value=";">セミコロン (;)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label>ローカルパスを直接指定する場合</label>
+              <textarea name="filePaths" placeholder="1行に1ファイルパスを入力" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"></textarea>
+            </div>
           </div>
         </details>
 
