@@ -301,11 +301,23 @@ async function renderDashboard() {
             </p>
           </div>
 
+          <h3 style="font-size:14px;margin-bottom:8px">5月以降どうなるか</h3>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-bottom:16px">
+            <p style="font-size:13px;line-height:1.8;margin:0">
+              データ移行が終わったら、<strong>FileMaker はライトオンに返却します。</strong><br>
+              それ以降、私たちは FileMaker を使いません。<br>
+              代わりに、新しいシステムと、きれいに整備されたデータで仕事をします。<br>
+              <br>
+              <strong>今やっているのは、その準備です。</strong><br>
+              ここで皆さんに協力してもらえれば、5月からは快適な環境で仕事ができます。
+            </p>
+          </div>
+
           <h3 style="font-size:14px;margin-bottom:8px">つまり</h3>
           <div style="background:#f9fafb;border-radius:8px;padding:14px 16px">
             <p style="font-size:13px;line-height:1.8;margin:0">
-              新しいシステムに移行するかどうかに関係なく、<br>
               <strong>今のデータをこのまま放置することはできません。</strong><br>
+              FileMaker を使い続ける場合でも、返却する場合でも、<br>
               どの道やらなければならない作業です。<br>
               皆さんの協力があれば、移行はスムーズに終わります。
             </p>
