@@ -2258,40 +2258,55 @@ async function renderColumnReview(runId) {
 // --- 列の確認保存後のサマリ表示 ---
 function showColumnReviewSummary(runId, profileId, summary) {
   const { activeCount, unusedCount, pendingCount } = summary;
+  const unansweredCount = pendingCount;
 
   app.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-      <h2 style="font-size:18px">回答を保存しました</h2>
+      <h2 style="font-size:18px">列の確認結果</h2>
     </div>
     <div class="card">
-      <p style="font-size:13px;margin-bottom:16px">
-        この回答が保存されました。次の確認に使われます。
-      </p>
       <div class="stats" style="margin-bottom:16px">
         <div class="stat">
           <div class="label">使う列</div>
-          <div class="value">${activeCount}</div>
+          <div class="value" style="color:var(--success)">${activeCount}</div>
         </div>
         <div class="stat">
           <div class="label">使わない列</div>
-          <div class="value">${unusedCount}</div>
+          <div class="value" style="color:var(--text-secondary)">${unusedCount}</div>
         </div>
         <div class="stat">
-          <div class="label">未確定</div>
-          <div class="value">${pendingCount}</div>
+          <div class="label">未回答</div>
+          <div class="value" style="color:#d97706">${unansweredCount}</div>
         </div>
       </div>
-      ${activeCount > 0 ? `
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <button class="btn btn-primary" id="btn-normalize-with-review">次に進む</button>
-          <a href="/runs/${escapeHtml(runId)}" class="btn">結果を見る</a>
+      ${unansweredCount > 0 ? `
+        <div style="background:#fffbeb;border-left:3px solid #f59e0b;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px">
+          未回答の列が${unansweredCount}件あります。未回答の列は「使わない」扱いになります。<br>
+          あとから「列の確認を続ける」で変更できます。
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px">
-          「使う列」${activeCount}件で、次の画面へ進みます。
-        </p>
+      ` : `
+        <div style="background:#f0fdf4;border-left:3px solid #16a34a;padding:10px 14px;border-radius:0 6px 6px 0;margin-bottom:16px;font-size:13px;color:#15803d">
+          すべての列を確認しました。
+        </div>
+      `}
+      ${activeCount > 0 ? `
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+          <button class="btn btn-primary" id="btn-normalize-with-review" style="font-size:14px">
+            次に進む（使う列${activeCount}件で処理）
+          </button>
+          <a href="/runs/${escapeHtml(runId)}/columns" class="btn">
+            列の確認を続ける
+          </a>
+          <div>
+            <button class="btn" id="btn-save-candidate-summary"
+              onclick="saveCandidateFromRun('${escapeHtml(runId)}', '${escapeHtml(profileId)}')"
+            >今の確認内容を保存する</button>
+            <div style="font-size:10px;color:var(--text-secondary);margin-top:2px">次回も候補として使えます</div>
+          </div>
+        </div>
       ` : `
         <div style="display:flex;gap:8px">
-          <a href="/runs/${escapeHtml(runId)}" class="btn btn-primary">結果を見る</a>
+          <a href="/runs/${escapeHtml(runId)}/columns" class="btn btn-primary">列の確認を続ける</a>
         </div>
       `}
     </div>
@@ -2300,7 +2315,7 @@ function showColumnReviewSummary(runId, profileId, summary) {
   document.getElementById('btn-normalize-with-review')?.addEventListener('click', async () => {
     const btn = document.getElementById('btn-normalize-with-review');
     btn.disabled = true;
-    btn.textContent = '実行中...';
+    btn.textContent = '処理中...';
     try {
       const result = await api(`/api/runs/${runId}/rerun-with-review`, {
         method: 'POST',
@@ -2309,9 +2324,9 @@ function showColumnReviewSummary(runId, profileId, summary) {
       });
       navigate(`/runs/${result.id}`);
     } catch (err) {
-      alert('実行に失敗しました: ' + err.message);
+      alert('処理に失敗しました: ' + err.message);
       btn.disabled = false;
-      btn.textContent = '次に進む';
+      btn.textContent = `次に進む（使う列${activeCount}件で処理）`;
     }
   });
 }
