@@ -228,13 +228,28 @@ async function renderDashboard() {
         </div>
       </div>
 
-      <div class="card" style="text-align:center;padding:24px">
-        <p style="font-size:15px;font-weight:600;margin-bottom:16px">ファイルの準備ができたら、ここから始めてください</p>
-        <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
-          <a href="/import" class="btn btn-primary" style="font-size:15px;padding:12px 28px">ファイルを取り込む</a>
-          <a href="/new" class="btn" style="font-size:15px;padding:12px 28px">新しく読み込む</a>
+      <div class="card" style="padding:24px">
+        <p style="font-size:15px;font-weight:600;margin-bottom:16px;text-align:center">ファイルの準備ができたら、ここから始めてください</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
+          <a href="/new" style="text-decoration:none;color:inherit;border:2px solid var(--primary);border-radius:8px;padding:20px 16px;text-align:center;display:block;transition:all 0.15s">
+            <div style="font-size:16px;font-weight:700;color:var(--primary);margin-bottom:6px">はじめてのファイル</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+              初めて出すファイルはこちら。<br>
+              中身を確認してから、列の確認に進みます。
+            </div>
+          </a>
+          <a href="/import" style="text-decoration:none;color:inherit;border:2px solid var(--success);border-radius:8px;padding:20px 16px;text-align:center;display:block;transition:all 0.15s">
+            <div style="font-size:16px;font-weight:700;color:var(--success);margin-bottom:6px">2回目以降のファイル</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6">
+              前に出したことがあるファイルはこちら。<br>
+              前回の設定を使って自動で処理します。
+            </div>
+          </a>
         </div>
-        <p style="font-size:12px;color:var(--text-secondary);margin-top:12px">
+        <p style="font-size:12px;color:var(--text-secondary);text-align:center">
+          どちらか分からない場合は「はじめてのファイル」を選んでください。
+        </p>
+        <p style="font-size:12px;color:var(--text-secondary);margin-top:8px;text-align:center">
           <a href="/history" style="color:var(--text-secondary)">過去の実行履歴を見る →</a>
         </p>
       </div>
