@@ -475,17 +475,16 @@ async function renderNewRun() {
           <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">XLSX または CSV ファイルに対応しています</p>
         </div>
 
-        <div class="header-row-card">
-          <input type="checkbox" name="hasHeader" id="has-header-checkbox">
-          <div>
-            <div style="font-size:14px;font-weight:600">1行目は見出し（項目名）</div>
-            <div style="font-size:11px;color:var(--text-secondary)">ファイル選択時に自動で切り替わります</div>
-          </div>
-        </div>
-
         <details style="margin-bottom:16px">
           <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer">詳細設定（通常は変更不要）</summary>
           <div style="margin-top:8px">
+            <div class="header-row-card" style="margin-bottom:12px">
+              <input type="checkbox" name="hasHeader" id="has-header-checkbox">
+              <div>
+                <div style="font-size:13px;font-weight:600">1行目は見出し（項目名）</div>
+                <div style="font-size:11px;color:var(--text-secondary)">ファイル選択時に自動で切り替わります</div>
+              </div>
+            </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
               <div class="form-group" style="margin-bottom:0">
                 <label>文字コード</label>
