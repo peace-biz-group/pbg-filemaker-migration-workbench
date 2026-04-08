@@ -95,15 +95,48 @@ async function renderDashboard() {
     <div style="max-width:800px;margin:0 auto">
       <h2 style="font-size:20px;margin-bottom:16px">はじめに</h2>
 
-      <div class="card" style="margin-bottom:20px">
-        <h3 style="font-size:16px;margin-bottom:12px">なぜこれが必要なのか</h3>
-        <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
-          今の FileMaker には長年の運用でデータが大量にたまっています。<br>
-          同じ事業でも履歴ファイルが何個もあったり、独自の項目名が使われていたりと、<br>
-          そのままでは新しいシステムに持っていけません。
+      <div class="card" style="margin-bottom:20px;border-left:4px solid var(--danger)">
+        <h3 style="font-size:16px;margin-bottom:12px">今の FileMaker の状態</h3>
+        <p style="font-size:14px;line-height:1.8;margin-bottom:12px">
+          今使っている FileMaker は、<strong>17年間ずっと継ぎ足しで使われてきた</strong>もので、<br>
+          一度もデータの整備がされていません。中身はこうなっています。
         </p>
-        <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
-          <strong>このシステムで、FileMaker のデータを整理して移行できる形にします。</strong>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;margin-bottom:12px">
+          <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:24px;font-weight:700;color:var(--danger)">74</div>
+            <div style="font-size:12px;color:#991b1b">ファイル数</div>
+          </div>
+          <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:24px;font-weight:700;color:var(--danger)">300万件</div>
+            <div style="font-size:12px;color:#991b1b">データ総数</div>
+          </div>
+          <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
+            <div style="font-size:24px;font-weight:700;color:var(--danger)">17年</div>
+            <div style="font-size:12px;color:#991b1b">整備なし</div>
+          </div>
+        </div>
+        <div style="font-size:13px;line-height:1.9;color:var(--text)">
+          <div style="margin-bottom:6px">・アポリストだけで <strong>283万件</strong></div>
+          <div style="margin-bottom:6px">・「見込み客」「顧客」「取引先」の区別がなく、全部ごちゃ混ぜ</div>
+          <div style="margin-bottom:6px">・使っていない列（項目）が大量に残ったまま放置されている</div>
+          <div style="margin-bottom:6px">・同じ意味の列が別の名前で何個もある</div>
+          <div style="margin-bottom:6px">・エアコン事業部だけでコール履歴ファイルが<strong>6つ</strong>存在している</div>
+          <div style="margin-bottom:6px">・普段の画面からは見えないが、裏側は全てこの状態になっている</div>
+        </div>
+        <div style="background:#fef2f2;border-radius:8px;padding:12px 16px;margin-top:12px">
+          <p style="font-size:13px;line-height:1.8;margin:0">
+            <strong>この整備は、新システムへの移行だけでなく、仮に正規版 FileMaker を使い続ける場合でも必要な作業です。</strong><br>
+            現在のライセンスは正規のものではないため、どちらにしてもこのままにはできません。
+          </p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3 style="font-size:16px;margin-bottom:12px">このシステムでやること</h3>
+        <p style="font-size:14px;line-height:1.8;margin-bottom:0">
+          上のような状態のデータを整理して、新しいシステムに移せる形にします。<br>
+          FileMaker からファイルを出して、このシステムに読み込ませて、<br>
+          どの列を使うかを確認する — それだけです。
         </p>
       </div>
 
