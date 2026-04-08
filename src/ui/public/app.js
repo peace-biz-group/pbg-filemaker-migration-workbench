@@ -94,13 +94,12 @@ async function renderDashboard() {
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
       <h2 style="font-size:18px">ダッシュボード</h2>
       <div class="btn-group">
-        <a href="/reviews/new" class="btn">レビュー</a>
         <a href="/import" class="btn btn-primary">ファイルを取り込む</a>
-        <a href="/new" class="btn btn-primary">新規 Run</a>
+        <a href="/new" class="btn btn-primary">新しく読み込む</a>
       </div>
     </div>
     <div class="card" id="run-list-card">
-      <h3>直近の実行結果</h3>
+      <h3>最近の作業</h3>
       <div class="loading">読み込み中...</div>
     </div>
     <div class="card" id="review-list-card" style="display:none">
@@ -115,8 +114,8 @@ async function renderDashboard() {
     if (runs.length === 0) {
       container.innerHTML = `
         <div class="empty">
-          <p>まだ実行結果がありません</p>
-          <a href="/new" class="btn btn-primary" style="margin-top:12px">最初の Run を作成</a>
+          <p>まだ作業がありません</p>
+          <a href="/new" class="btn btn-primary" style="margin-top:12px">ファイルを読み込む</a>
         </div>
       `;
       return;
@@ -124,26 +123,40 @@ async function renderDashboard() {
 
     let html = '<div class="run-list">';
     for (const run of runs) {
-      const status = run.status === 'completed'
-        ? '<span class="badge badge-success">完了</span>'
-        : run.status === 'failed'
-          ? '<span class="badge badge-danger">失敗</span>'
-          : '<span class="badge badge-warning">実行中</span>';
+      let statusHtml;
+      let ctaHtml = '';
+      if (run.status === 'failed') {
+        statusHtml = '<span class="badge badge-danger">エラー</span>';
+      } else if (run.status !== 'completed') {
+        statusHtml = '<span class="badge badge-warning">処理中</span>';
+      } else if (run.columnStatus?.pendingCount > 0) {
+        statusHtml = '<span class="badge badge-warning">列の確認中</span>';
+        ctaHtml = `<a href="/runs/${run.id}/columns" class="btn" style="font-size:12px;padding:4px 12px">確認を続ける</a>`;
+      } else if (run.columnStatus?.savedAsCandidate) {
+        statusHtml = '<span class="badge badge-info">設定保存済み</span>';
+      } else {
+        statusHtml = '<span class="badge badge-success">完了</span>';
+      }
       const time = new Date(run.startedAt).toLocaleString('ja-JP');
       const files = run.inputFiles.map(f => f.split('/').pop()).join(', ');
-      const modes = Array.isArray(run.summary?.modes) ? run.summary.modes.join('/') : 'archive';
+      const subtitleParts = [];
+      const fileTypeLabel = label('fileTypes', run.summary?.fileType);
+      if (fileTypeLabel) subtitleParts.push(fileTypeLabel);
+      if (run.status === 'failed' && run.error) subtitleParts.push(run.error.slice(0, 60));
       html += `
         <a href="/runs/${run.id}" class="run-item">
-          <span class="run-mode">${run.mode}</span>
-          ${status}
-          <span class="run-files">mode: ${escapeHtml(modes)}</span>
-          <span class="run-files" title="${run.inputFiles.join(', ')}">${files}</span>
+          ${statusHtml}
+          <div style="flex:1;min-width:0">
+            <div style="font-weight:600;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(files)}</div>
+            ${subtitleParts.length > 0 ? `<div style="font-size:12px;color:var(--text-secondary)">${escapeHtml(subtitleParts.join(' — '))}</div>` : ''}
+          </div>
+          ${ctaHtml}
           <span class="run-time">${time}</span>
         </a>
       `;
     }
     html += '</div>';
-    container.innerHTML = `<h3>直近の実行結果 (${runs.length}件)</h3>` + html;
+    container.innerHTML = `<h3>最近の作業 (${runs.length}件)</h3>` + html;
     // Load reviews for dashboard
     try {
       const reviews = await api('/api/reviews');
