@@ -565,7 +565,7 @@ function showPreviewModal(data) {
         modal.remove();
         showPreviewModal(newData);
       } catch (err) {
-        alert('プレビュー再取得失敗: ' + err.message);
+        alert('プレビューの再取得に失敗しました: ' + err.message);
       }
     });
   }
