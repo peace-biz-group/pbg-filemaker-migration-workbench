@@ -108,25 +108,48 @@ async function renderDashboard() {
       </div>
 
       <div class="card" style="margin-bottom:20px">
-        <h3 style="font-size:16px;margin-bottom:12px">皆さんにお願いしたいこと</h3>
-        <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
-          FileMaker からデータをエクスポートして、このシステムに読み込ませてください。<br>
-          どの列を使うかを確認したら、それが<strong>移行する確定データ</strong>になります。
+        <h3 style="font-size:16px;margin-bottom:12px">福岡の皆さんへのお願い</h3>
+        <p style="font-size:14px;line-height:1.8;margin-bottom:12px">
+          <strong>毎週金曜日に、FileMaker のデータをエクスポートして送ってください。</strong><br>
+          作業は30分もかかりません。下の「手順」のとおりにやるだけです。
         </p>
-        <div style="background:#eff6ff;border-radius:8px;padding:12px 16px;margin-bottom:8px">
+
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px 16px;margin-bottom:10px">
+          <p style="font-size:14px;font-weight:700;color:#15803d;margin:0 0 6px 0">なぜ毎週やると良いのか</p>
           <p style="font-size:13px;line-height:1.8;margin:0">
-            <strong>ポイント:</strong> FileMaker の運用は止めなくて大丈夫です。<br>
-            ただし、ここに出してもらったデータが移行の基準になります。<br>
-            出したあとに FileMaker だけで入力されたデータは移行されません。
+            初回だけ「この列を使う？使わない？」の確認が必要ですが、<br>
+            <strong>2回目からは設定が残っているので、出すだけでOKです。</strong><br>
+            毎週出してもらえると、移行当日に「初めて見るデータ」がなくなり、<br>
+            トラブルなく移行できます。
           </p>
         </div>
-        <div style="background:#fef3c7;border-radius:8px;padding:12px 16px">
+
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:14px 16px;margin-bottom:10px">
+          <p style="font-size:14px;font-weight:700;color:#1e40af;margin:0 0 6px 0">FileMaker の運用について</p>
           <p style="font-size:13px;line-height:1.8;margin:0">
-            <strong>できれば週に1回</strong>、少なくとも移行の直前には<br>
-            最新のデータをエクスポートしてここに読み込ませてください。<br>
-            こまめに出してもらえると、より正確にデータを移行できます。<br>
-            特に、1ヶ月以上データが動かないファイルがあれば早めに出してください。
+            FileMaker はいつも通り使い続けて大丈夫です。止める必要はありません。<br>
+            ここに出してもらったデータが、新しいシステムに移す基準になります。<br>
+            出したあとに FileMaker だけで入力されたデータは移行されないので、<br>
+            <strong>移行の直前にも必ず最新のデータを出してください。</strong>
           </p>
+        </div>
+
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px">
+          <p style="font-size:14px;font-weight:700;color:#92400e;margin:0 0 6px 0">5/7 に向けたスケジュール</p>
+          <div style="font-size:13px;line-height:1.8">
+            <div style="display:flex;gap:8px;margin-bottom:4px">
+              <span style="font-weight:600;min-width:80px;color:#92400e">4月中</span>
+              <span>毎週金曜にエクスポート → 送付（列の確認を進めます）</span>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:4px">
+              <span style="font-weight:600;min-width:80px;color:#92400e">GW前半</span>
+              <span>全ファイルの最終エクスポート → 送付</span>
+            </div>
+            <div style="display:flex;gap:8px">
+              <span style="font-weight:600;min-width:80px;color:#92400e">5/5〜6</span>
+              <span>最終確認 → 5/7 に新システムへ移行</span>
+            </div>
+          </div>
         </div>
       </div>
 
