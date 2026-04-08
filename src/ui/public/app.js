@@ -95,46 +95,10 @@ async function renderDashboard() {
     <div style="max-width:800px;margin:0 auto">
       <h2 style="font-size:20px;margin-bottom:16px">はじめに</h2>
 
-      <div class="card" style="margin-bottom:20px;border-left:4px solid var(--danger)">
-        <h3 style="font-size:16px;margin-bottom:12px">今の FileMaker の状態</h3>
-        <p style="font-size:14px;line-height:1.8;margin-bottom:12px">
-          今使っている FileMaker は、<strong>17年間ずっと継ぎ足しで使われてきた</strong>もので、<br>
-          一度もデータの整備がされていません。中身はこうなっています。
-        </p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));gap:10px;margin-bottom:12px">
-          <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
-            <div style="font-size:24px;font-weight:700;color:var(--danger)">74</div>
-            <div style="font-size:12px;color:#991b1b">ファイル数</div>
-          </div>
-          <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
-            <div style="font-size:24px;font-weight:700;color:var(--danger)">300万件</div>
-            <div style="font-size:12px;color:#991b1b">データ総数</div>
-          </div>
-          <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
-            <div style="font-size:24px;font-weight:700;color:var(--danger)">17年</div>
-            <div style="font-size:12px;color:#991b1b">整備なし</div>
-          </div>
-        </div>
-        <div style="font-size:13px;line-height:1.9;color:var(--text)">
-          <div style="margin-bottom:6px">・アポリストだけで <strong>283万件</strong></div>
-          <div style="margin-bottom:6px">・「見込み客」「顧客」「取引先」の区別がなく、全部ごちゃ混ぜ</div>
-          <div style="margin-bottom:6px">・使っていない列（項目）が大量に残ったまま放置されている</div>
-          <div style="margin-bottom:6px">・同じ意味の列が別の名前で何個もある</div>
-          <div style="margin-bottom:6px">・エアコン事業部だけでコール履歴ファイルが<strong>6つ</strong>存在している</div>
-          <div style="margin-bottom:6px">・普段の画面からは見えないが、裏側は全てこの状態になっている</div>
-        </div>
-        <div style="background:#fef2f2;border-radius:8px;padding:12px 16px;margin-top:12px">
-          <p style="font-size:13px;line-height:1.8;margin:0">
-            <strong>この整備は、新システムへの移行だけでなく、仮に正規版 FileMaker を使い続ける場合でも必要な作業です。</strong><br>
-            現在のライセンスは正規のものではないため、どちらにしてもこのままにはできません。
-          </p>
-        </div>
-      </div>
-
       <div class="card" style="margin-bottom:20px">
         <h3 style="font-size:16px;margin-bottom:12px">このシステムでやること</h3>
         <p style="font-size:14px;line-height:1.8;margin-bottom:0">
-          上のような状態のデータを整理して、新しいシステムに移せる形にします。<br>
+          今の FileMaker に入っているデータを整理して、新しいシステムに移せる形にします。<br>
           FileMaker からファイルを出して、このシステムに読み込ませて、<br>
           どの列を使うかを確認する — それだけです。
         </p>
@@ -245,6 +209,65 @@ async function renderDashboard() {
           <a href="/history" style="color:var(--text-secondary)">過去の実行履歴を見る →</a>
         </p>
       </div>
+
+      <details style="margin-top:24px">
+        <summary style="font-size:13px;color:var(--text-secondary);cursor:pointer;padding:8px 0">
+          なぜデータ整備が必要なのか — 今の FileMaker の実態
+        </summary>
+        <div class="card" style="margin-top:8px;border-left:4px solid var(--danger)">
+          <p style="font-size:14px;line-height:1.8;margin-bottom:12px">
+            今使っている FileMaker は、<strong>17年間ずっと継ぎ足しで運用されてきました。</strong><br>
+            その間、データの整備は一度も行われていません。
+          </p>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(150px, 1fr));gap:10px;margin-bottom:16px">
+            <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--danger)">74</div>
+              <div style="font-size:12px;color:#991b1b">ファイル数</div>
+            </div>
+            <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--danger)">300万件</div>
+              <div style="font-size:12px;color:#991b1b">データ総数</div>
+            </div>
+            <div style="background:#fee2e2;border-radius:8px;padding:12px;text-align:center">
+              <div style="font-size:24px;font-weight:700;color:var(--danger)">17年</div>
+              <div style="font-size:12px;color:#991b1b">整備なし</div>
+            </div>
+          </div>
+
+          <h3 style="font-size:14px;margin-bottom:8px">何が問題なのか</h3>
+          <div style="font-size:13px;line-height:2;color:var(--text);margin-bottom:16px">
+            <div style="margin-bottom:4px">・アポリストだけで <strong>283万件</strong>。誰も全体を把握できていない</div>
+            <div style="margin-bottom:4px">・「見込み客」「既存顧客」「取引先」の区別がない。全部同じ場所にごちゃ混ぜで入っている</div>
+            <div style="margin-bottom:4px">・使っていない列（項目）が大量に残っている。誰が何のために作ったか分からないものも多い</div>
+            <div style="margin-bottom:4px">・同じ意味の列が違う名前で何個も存在する（例: 「電話」「TEL」「電話番号」「連絡先」が別々にある）</div>
+            <div style="margin-bottom:4px">・エアコン事業部だけでコール履歴ファイルが <strong>6つ</strong> 存在している。なぜ6つあるのか誰も説明できない</div>
+            <div style="margin-bottom:4px">・事業ごとに勝手にファイルが増やされ、同じようなデータが何箇所にも分散している</div>
+            <div style="margin-bottom:4px">・入力ルールが統一されておらず、同じ項目でも人によって書き方がバラバラ</div>
+            <div style="margin-bottom:4px">・普段の画面からは見えないが、裏側では上記の全てが17年分たまっている</div>
+          </div>
+
+          <h3 style="font-size:14px;margin-bottom:8px">ライセンスの問題</h3>
+          <div style="background:#fef2f2;border-radius:8px;padding:14px 16px;margin-bottom:16px">
+            <p style="font-size:13px;line-height:1.8;margin:0">
+              現在使っている FileMaker は<strong>正規のライセンスではありません。</strong><br>
+              このまま使い続けることは法的にできません。<br>
+              仮に正規版の FileMaker を購入して使い続ける場合でも、<br>
+              上に書いたデータの整備は同じように必要になります。
+            </p>
+          </div>
+
+          <h3 style="font-size:14px;margin-bottom:8px">つまり</h3>
+          <div style="background:#f9fafb;border-radius:8px;padding:14px 16px">
+            <p style="font-size:13px;line-height:1.8;margin:0">
+              新しいシステムに移行するかどうかに関係なく、<br>
+              <strong>今のデータをこのまま放置することはできません。</strong><br>
+              どの道やらなければならない作業です。<br>
+              皆さんの協力があれば、移行はスムーズに終わります。
+            </p>
+          </div>
+        </div>
+      </details>
     </div>
   `;
 }
