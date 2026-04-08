@@ -96,14 +96,38 @@ async function renderDashboard() {
       <h2 style="font-size:20px;margin-bottom:16px">はじめに</h2>
 
       <div class="card" style="margin-bottom:20px">
-        <h3 style="font-size:16px;margin-bottom:12px">このシステムでやること</h3>
+        <h3 style="font-size:16px;margin-bottom:12px">なぜこれが必要なのか</h3>
         <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
-          FileMaker に入っているデータを、新しいシステムに移すための準備をします。
+          今の FileMaker には長年の運用でデータが大量にたまっています。<br>
+          同じ事業でも履歴ファイルが何個もあったり、独自の項目名が使われていたりと、<br>
+          そのままでは新しいシステムに持っていけません。
         </p>
-        <p style="font-size:14px;line-height:1.8;margin-bottom:0">
-          まず FileMaker からファイルを出して、このシステムに読み込ませます。<br>
-          そのあと、どの列（項目）を使うかを確認します。
+        <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
+          <strong>このシステムで、FileMaker のデータを整理して移行できる形にします。</strong>
         </p>
+      </div>
+
+      <div class="card" style="margin-bottom:20px">
+        <h3 style="font-size:16px;margin-bottom:12px">皆さんにお願いしたいこと</h3>
+        <p style="font-size:14px;line-height:1.8;margin-bottom:8px">
+          FileMaker からデータをエクスポートして、このシステムに読み込ませてください。<br>
+          どの列を使うかを確認したら、それが<strong>移行する確定データ</strong>になります。
+        </p>
+        <div style="background:#eff6ff;border-radius:8px;padding:12px 16px;margin-bottom:8px">
+          <p style="font-size:13px;line-height:1.8;margin:0">
+            <strong>ポイント:</strong> FileMaker の運用は止めなくて大丈夫です。<br>
+            ただし、ここに出してもらったデータが移行の基準になります。<br>
+            出したあとに FileMaker だけで入力されたデータは移行されません。
+          </p>
+        </div>
+        <div style="background:#fef3c7;border-radius:8px;padding:12px 16px">
+          <p style="font-size:13px;line-height:1.8;margin:0">
+            <strong>できれば週に1回</strong>、少なくとも移行の直前には<br>
+            最新のデータをエクスポートしてここに読み込ませてください。<br>
+            こまめに出してもらえると、より正確にデータを移行できます。<br>
+            特に、1ヶ月以上データが動かないファイルがあれば早めに出してください。
+          </p>
+        </div>
       </div>
 
       <div class="card" style="margin-bottom:20px">
