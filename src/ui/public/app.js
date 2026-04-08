@@ -202,52 +202,15 @@ async function renderNewRun() {
   const configOptions = configs.map(c => `<option value="${c}">${c}</option>`).join('');
 
   app.innerHTML = `
-    <h2 style="font-size:18px;margin-bottom:16px">新規 Run</h2>
+    <h2 style="font-size:18px;margin-bottom:4px">新しくファイルを読み込む</h2>
+    <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px">ファイルを選んで中身を確認します。設定は通常そのままで大丈夫です。</p>
     <div class="card">
       <form id="run-form">
-        <div class="form-group">
-          <label>実行モード</label>
-          <select name="mode" required>
-            <option value="run-all">run-all（単一ファイル全パイプライン）</option>
-            <option value="run-batch">run-batch（複数ファイル横断）</option>
-            <option value="profile">profile（データプロファイルのみ）</option>
-            <option value="normalize">normalize（正規化のみ）</option>
-            <option value="detect-duplicates">detect-duplicates（重複検出のみ）</option>
-            <option value="classify">classify（分類のみ）</option>
-          </select>
-        </div>
+        <input type="hidden" name="mode" value="run-all">
+        <input type="hidden" name="configPath" value="">
 
         <div class="form-group">
-          <label>設定ファイル（任意）</label>
-          <select name="configPath">
-            <option value="">デフォルト設定</option>
-            ${configOptions}
-          </select>
-        </div>
-
-        <div class="form-group">
-          <label>文字コード (encoding)</label>
-          <select name="encoding">
-            <option value="auto">自動検出</option>
-            <option value="utf8">UTF-8</option>
-            <option value="cp932" selected>Shift-JIS (CP932)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>区切り文字 (delimiter)</label>
-          <select name="delimiter">
-            <option value="auto">自動検出</option>
-            <option value=",">カンマ (,)</option>
-            <option value="\t">タブ (\\t)</option>
-            <option value=";">セミコロン (;)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label><input type="checkbox" name="hasHeader" checked> ヘッダ行あり</label>
-        </div>
-
-        <div class="form-group">
-          <label>入力ファイル — ドラッグ＆ドロップまたはクリックでアップロード</label>
+          <label>入力ファイル</label>
           <div class="drop-zone" id="drop-zone">
             <p>CSV / XLSX ファイルをここにドロップ<br>またはクリックしてファイルを選択</p>
             <input type="file" id="file-input" multiple accept=".csv,.xlsx" style="display:none">
@@ -255,13 +218,43 @@ async function renderNewRun() {
           </div>
         </div>
 
-        <div class="form-group">
-          <label>または、ローカルパスを直接指定</label>
-          <textarea name="filePaths" placeholder="1行に1ファイルパスを入力&#10;例:&#10;/Users/you/data/apo_list_2024.csv" rows="3"></textarea>
-          <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">
-            サーバーが読み取れるローカルファイルの絶対パスまたは相対パスを指定してください
-          </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>文字コード</label>
+            <select name="encoding">
+              <option value="auto" selected>自動検出（通常はこのまま）</option>
+              <option value="cp932">Shift-JIS (CP932)</option>
+              <option value="utf8">UTF-8</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>区切り文字</label>
+            <select name="delimiter">
+              <option value="auto">自動検出（通常はこのまま）</option>
+              <option value=",">カンマ (,)</option>
+              <option value="\\t">タブ</option>
+              <option value=";">セミコロン (;)</option>
+            </select>
+          </div>
         </div>
+
+        <div class="header-row-card">
+          <input type="checkbox" name="hasHeader" id="has-header-checkbox">
+          <div>
+            <div style="font-size:14px;font-weight:600">1行目は見出し（項目名）</div>
+            <div style="font-size:11px;color:var(--text-secondary)">ファイル選択時に自動で切り替わります</div>
+          </div>
+        </div>
+
+        <details style="margin-bottom:16px">
+          <summary style="font-size:12px;color:var(--text-secondary);cursor:pointer">ローカルパスを直接指定する場合</summary>
+          <div style="margin-top:8px">
+            <textarea name="filePaths" placeholder="1行に1ファイルパスを入力" rows="3" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-family:inherit;box-sizing:border-box"></textarea>
+            <p style="font-size:11px;color:var(--text-secondary);margin-top:4px">
+              このパソコンから読み取れるファイルの場所を入力してください
+            </p>
+          </div>
+        </details>
 
         <div id="progress-area" style="display:none">
           <div class="progress-container">
@@ -271,9 +264,8 @@ async function renderNewRun() {
         </div>
 
         <div style="display:flex;gap:8px;align-items:center">
-          <button type="button" class="btn btn-primary" id="confirm-btn">ファイルを確認</button>
-          <button type="submit" class="btn" id="run-submit">確認せず実行</button>
-          <button type="button" class="btn" id="preview-btn">プレビュー</button>
+          <button type="button" class="btn btn-primary" id="confirm-btn">ファイルを確認する</button>
+          <button type="button" class="btn" id="preview-btn">中身をプレビュー</button>
           <span id="run-status" style="font-size:13px;color:var(--text-secondary)"></span>
         </div>
       </form>
@@ -293,67 +285,6 @@ async function renderNewRun() {
     addFiles(e.dataTransfer.files);
   });
   fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
-
-  // Form submit
-  $('#run-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const form = e.target;
-    const btn = $('#run-submit');
-    const status = $('#run-status');
-
-    btn.disabled = true;
-    status.textContent = '実行中...';
-    status.style.color = 'var(--text-secondary)';
-
-    try {
-      const mode = form.mode.value;
-      const configPath = form.configPath.value;
-      const filePathsText = form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean);
-
-      if (uploadedFiles.length === 0 && filePathsText.length === 0) {
-        throw new Error('入力ファイルを指定してください');
-      }
-
-      const ingestOptions = {
-        encoding: form.encoding.value,
-        delimiter: form.delimiter.value,
-        hasHeader: form.hasHeader.checked,
-      };
-
-      let result;
-      if (uploadedFiles.length > 0) {
-        // Use multipart upload
-        const formData = new FormData();
-        formData.append('mode', mode);
-        if (configPath) formData.append('configPath', configPath);
-        for (const f of uploadedFiles) {
-          formData.append('files', f);
-        }
-        if (filePathsText.length > 0) {
-          formData.append('filePaths', JSON.stringify(filePathsText));
-        }
-        formData.append('ingestOptions', JSON.stringify(ingestOptions));
-        const res = await fetch('/api/runs', { method: 'POST', body: formData });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `HTTP ${res.status}`);
-        }
-        result = await res.json();
-      } else {
-        result = await api('/api/runs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode, configPath, filePaths: filePathsText, ingestOptions }),
-        });
-      }
-
-      navigate(`/runs/${result.id}`);
-    } catch (err) {
-      status.textContent = `エラー: ${err.message}`;
-      status.style.color = 'var(--danger)';
-      btn.disabled = false;
-    }
-  });
 
   // Preview button handler
   const previewBtn = $('#preview-btn');
@@ -398,7 +329,7 @@ async function renderNewRun() {
         }
         showPreviewModal(data);
       } catch (err) {
-        alert('Preview 失敗: ' + err.message);
+        alert('プレビューに失敗しました: ' + err.message);
       }
     });
   }
@@ -439,7 +370,7 @@ async function renderNewRun() {
               configPath: form.configPath.value,
               encoding: form.encoding.value,
               delimiter: form.delimiter.value,
-              hasHeader: form.hasHeader.checked,
+              hasHeader: document.getElementById('has-header-checkbox').checked,
               filePathsText: filePaths,
             },
           };
@@ -458,7 +389,7 @@ async function renderNewRun() {
         const formData = new FormData();
         formData.append('file', uploadedFiles[0]);
         formData.append('encoding', form.encoding.value);
-        formData.append('hasHeader', form.hasHeader.checked ? 'true' : 'false');
+        formData.append('hasHeader', document.getElementById('has-header-checkbox').checked ? 'true' : 'false');
 
         const res = await fetch('/api/upload-identify', { method: 'POST', body: formData });
         if (!res.ok) {
@@ -474,7 +405,7 @@ async function renderNewRun() {
             configPath: form.configPath.value,
             encoding: form.encoding.value,
             delimiter: form.delimiter.value,
-            hasHeader: form.hasHeader.checked,
+            hasHeader: document.getElementById('has-header-checkbox').checked,
             filePathsText: form.filePaths.value.split('\n').map(s => s.trim()).filter(Boolean),
             uploadedFiles: uploadedFiles.slice(),
           },
@@ -590,14 +521,13 @@ function showPreviewModal(data) {
   modal.innerHTML = `
     <div style="background:var(--surface);border-radius:8px;padding:24px;max-width:900px;width:100%;max-height:80vh;overflow:auto">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <h2 style="font-size:16px">Preview: ${escapeHtml(data.file.split('/').pop())}</h2>
+        <h2 style="font-size:16px">プレビュー: ${escapeHtml(data.file.split('/').pop())}</h2>
         <button onclick="document.getElementById('preview-modal').remove()" class="btn">閉じる</button>
       </div>
       <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">${escapeHtml(diagInfo)}</p>
       <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px">
-        カラム: ${(data.columns || []).length} |
-        Schema FP: ${(data.schemaFingerprint || '').slice(0,16)}... |
-        Parse エラー: ${data.parseFailures ? data.parseFailures.length : 0}
+        列数: ${(data.columns || []).length} |
+        読み取りエラー: ${data.parseFailures ? data.parseFailures.length : 0}
       </p>
       ${data.mappingSuggestions && data.mappingSuggestions.length > 0 ? `
         <div style="margin-bottom:12px;padding:8px;background:var(--surface-hover,#f5f5f5);border-radius:4px">
@@ -684,6 +614,13 @@ function addFiles(fileList) {
     }
   }
   renderFilePreview();
+  // Auto-toggle header checkbox based on file extension
+  const cb = document.getElementById('has-header-checkbox');
+  if (cb && uploadedFiles.length > 0) {
+    const lastFile = uploadedFiles[uploadedFiles.length - 1];
+    const ext = lastFile.name.toLowerCase().split('.').pop();
+    cb.checked = (ext === 'xlsx');
+  }
 }
 
 function renderFilePreview() {
