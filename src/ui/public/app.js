@@ -804,18 +804,18 @@ async function renderRunDetail(runId) {
 
     let html = `
       <div class="card" style="margin-bottom:12px">
-        <h2 style="font-size:20px;margin-bottom:6px">終わりました ${statusBadge}</h2>
+        <h2 style="font-size:20px;margin-bottom:6px">処理が完了しました ${statusBadge}</h2>
         <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px">
           つぎに進むときは「詳細を見る」を押してください。
         </p>
         <div class="btn-group">
-          <a href="/" class="btn btn-primary">Homeに戻る</a>
+          <a href="/" class="btn btn-primary">ダッシュボードに戻る</a>
           <button class="btn" id="btn-show-details">詳細を見る</button>
         </div>
       </div>
       <div id="run-detail-advanced" style="display:none">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-          <h2 style="font-size:18px">実行のくわしい情報</h2>
+          <h2 style="font-size:18px">くわしい情報</h2>
           <div class="btn-group">
             <button class="btn btn-primary" id="btn-start-review-from-run" title="列の確認を開始">列の確認</button>
             <button class="btn" id="btn-rerun" title="同じ設定で再実行">もう一度実行</button>
@@ -837,20 +837,18 @@ async function renderRunDetail(runId) {
           実行日時: ${new Date(run.startedAt).toLocaleString('ja-JP')}
           ${run.completedAt ? ` — 完了: ${new Date(run.completedAt).toLocaleString('ja-JP')}` : ''}
           <br>対象ファイル: ${escapeHtml(inputFiles)}
-          <br>source batch数: ${(summary.sourceBatchCount || 0).toLocaleString()} / mode: ${escapeHtml((summary.modes || []).join(', ') || 'archive')}
         </p>
         <div class="stats">
-          <div class="stat"><div class="label">レコード数</div><div class="value">${(summary.recordCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">カラム数</div><div class="value">${summary.columnCount || 0}</div></div>
+          <div class="stat"><div class="label">データ件数</div><div class="value">${(summary.recordCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">列数</div><div class="value">${summary.columnCount || 0}</div></div>
           <div class="stat"><div class="label">正規化済み</div><div class="value">${(summary.normalizedCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">別に分けたもの</div><div class="value">${(summary.quarantineCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">読み取りエラー</div><div class="value">${(summary.parseFailCount || 0).toLocaleString()}</div></div>
           <div class="stat"><div class="label">同じかも</div><div class="value">${(summary.duplicateGroupCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">mainline追加</div><div class="value">${(summary.insertedCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">mainline更新</div><div class="value">${(summary.updatedCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">mainline変更なし</div><div class="value">${(summary.unchangedCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">mainline重複</div><div class="value">${(summary.duplicateCount || 0).toLocaleString()}</div></div>
-          <div class="stat"><div class="label">archiveスキップ</div><div class="value">${(summary.skippedArchiveCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">新規追加</div><div class="value">${(summary.insertedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">更新</div><div class="value">${(summary.updatedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">変更なし</div><div class="value">${(summary.unchangedCount || 0).toLocaleString()}</div></div>
+          <div class="stat"><div class="label">重複</div><div class="value">${(summary.duplicateCount || 0).toLocaleString()}</div></div>
         </div>
         ${run.ingestDiagnoses && Object.keys(run.ingestDiagnoses).length > 0 ? `
           <div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">
@@ -877,7 +875,7 @@ async function renderRunDetail(runId) {
 
     // Tabs
     const tabs = [];
-    if (hasNormalized) tabs.push({ id: 'compare', label: '前と後をくらべる', file: 'normalized.csv', special: 'compare' });
+    if (hasNormalized) tabs.push({ id: 'compare', label: '元のデータと比較', file: 'normalized.csv', special: 'compare' });
     if (hasNormalized) tabs.push({ id: 'normalized', label: '正規化データ', file: 'normalized.csv' });
     if (hasAnomalies) tabs.push({ id: 'anomalies', label: 'おかしいデータ', file: 'anomalies.csv' });
     if (hasDuplicates) tabs.push({ id: 'duplicates', label: '同じかもしれないもの', file: 'duplicates.csv', special: 'dup-groups' });
@@ -998,16 +996,16 @@ async function loadColumnStatusCard(runId) {
         <div class="stats" style="margin-bottom:12px">
           <div class="stat"><div class="label">使う列</div><div class="value">${entry.activeCount}</div></div>
           <div class="stat"><div class="label">使わない列</div><div class="value">${entry.unusedCount}</div></div>
-          <div class="stat"><div class="label">まだ決まっていない列</div><div class="value">${entry.pendingCount}</div></div>
+          <div class="stat"><div class="label">未回答</div><div class="value">${entry.pendingCount}</div></div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
-          <a href="/runs/${escapeHtml(runId)}/columns" class="btn btn-primary">列の確認を再開</a>
+          <a href="/runs/${escapeHtml(runId)}/columns" class="btn btn-primary">列の確認を続ける</a>
           <button
             class="btn"
             id="btn-save-candidate"
             onclick="saveCandidateFromRun('${escapeHtml(runId)}', '${escapeHtml(entry.profileId)}')"
             title="この列の設定を次回も使えるように保存します"
-          >この設定を保存</button>
+          >今の確認内容を保存する</button>
         </div>
         <p id="save-candidate-msg" style="font-size:11px;color:var(--text-secondary);margin-top:4px;display:none"></p>
         <p style="font-size:11px;color:var(--text-secondary);margin-top:8px">
@@ -1189,13 +1187,13 @@ async function loadCompareView(runId, tabDef) {
 
     // Before
     html += '<div>';
-    html += '<h3 style="margin-bottom:8px">Before（元データ）</h3>';
+    html += '<h3 style="margin-bottom:8px">元のデータ</h3>';
     html += renderDataTable(sourceData.columns, sourceData.rows);
     html += '</div>';
 
     // After
     html += '<div>';
-    html += '<h3 style="margin-bottom:8px">After（正規化後）</h3>';
+    html += '<h3 style="margin-bottom:8px">変換後のデータ</h3>';
     html += renderDataTable(normalizedData.columns, normalizedData.rows, sourceData.rows);
     html += '</div>';
 
