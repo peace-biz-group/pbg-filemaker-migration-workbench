@@ -2,7 +2,7 @@ services:
   - type: web
     name: fm-workbench
     runtime: node
-    buildCommand: npm install && npm run build
+    buildCommand: npm install && npm run build && cp -r src/ui/public dist/ui/public
     startCommand: node dist/ui/server.js
     envVars:
       - key: HOST
