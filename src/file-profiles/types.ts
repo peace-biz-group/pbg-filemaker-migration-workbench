@@ -67,6 +67,11 @@ export interface FileProfile {
    * true のときはヘッダーなしファイルとのマッチスコアにボーナスを加算する。
    */
   headerlessSuitable?: boolean;
+  /**
+   * FamilyRegistry の family_id との対応付け。
+   * matchProfile に knownFamilyId を渡した際のスコアブーストに使う。
+   */
+  familyId?: string;
 }
 
 /**

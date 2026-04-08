@@ -10,6 +10,7 @@ export const SEED_PROFILES: FileProfile[] = [
   {
     id: 'customer-list',
     label: '顧客一覧',
+    familyId: 'customer_master',
     filenameHints: ['顧客*', '*顧客*', 'customer*', '*customer*', '*太陽光顧客管理*', '*solar*customer*'],
     defaultEncoding: 'cp932',
     defaultHasHeader: true,
@@ -28,6 +29,7 @@ export const SEED_PROFILES: FileProfile[] = [
   {
     id: 'apo-list',
     label: 'アポイント一覧',
+    familyId: 'appo_source',
     filenameHints: ['apo*', 'アポ*', 'appointment*', '*appointment*'],
     defaultEncoding: 'cp932',
     defaultHasHeader: true,
@@ -46,6 +48,7 @@ export const SEED_PROFILES: FileProfile[] = [
   {
     id: 'call-history',
     label: 'コール履歴',
+    familyId: 'call_history',
     filenameHints: ['call*', 'コール*', '*コール*', '*call*', '架電*'],
     defaultEncoding: 'cp932',
     defaultHasHeader: true,
@@ -64,6 +67,7 @@ export const SEED_PROFILES: FileProfile[] = [
   {
     id: 'visit-history',
     label: '訪問履歴',
+    familyId: 'visit_history',
     filenameHints: ['visit*', '訪問*', '*訪問*', '*visit*'],
     defaultEncoding: 'cp932',
     defaultHasHeader: true,

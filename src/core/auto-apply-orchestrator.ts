@@ -60,6 +60,11 @@ export function runAutoApplyPreview(
   const templateRegistry = loadTemplateRegistry(outputDir);
   const template = getTemplate(schemaFingerprint, templateRegistry);
 
+  // テンプレートが見つかった場合はそちらの family_id を優先する。
+  // テンプレートは schemaFingerprint で厳密に照合されるため、
+  // 列ベースのキーワード検出より信頼度が高い。
+  const resolvedFamilyId = template?.family_id ?? familyId;
+
   // Step 3: Apply template decisions (only confirmed / high — fail-closed for low)
   // Only apply decisions for columns that actually exist in the input file.
   const appliedDecisions: AppliedDecision[] = [];
@@ -81,10 +86,11 @@ export function runAutoApplyPreview(
   }
 
   // Step 4: Apply resolution memory (column_ignore type only)
+  // resolvedFamilyId を渡して family スコープ優先・グローバルフォールバックで検索する
   const memory = loadMemory(outputDir);
   for (const col of columns) {
     if (resolvedColumns.has(col)) continue;
-    const rec = lookupResolution('column_ignore', `column:${col}`, memory);
+    const rec = lookupResolution('column_ignore', `column:${col}`, memory, resolvedFamilyId);
     if (rec && shouldAutoApply(rec)) {
       appliedDecisions.push({
         sourceColumn: col,
@@ -119,7 +125,7 @@ export function runAutoApplyPreview(
   const unresolvedColumns = columns.filter((col) => !resolvedColumns.has(col));
 
   return {
-    familyId,
+    familyId: resolvedFamilyId,
     familyCertainty,
     templateId: template?.template_id ?? null,
     autoApplyEligibility: template ? template.auto_apply_eligibility : 'no_template',

@@ -42,11 +42,40 @@ export function createEmptyMemory(): ResolutionMemory {
   return { version: '1', resolutions: [] };
 }
 
+/**
+ * resolution を検索する。
+ *
+ * familyId を渡すと family スコープ優先で検索し、見つからなければ
+ * family_id === null のグローバルレコードにフォールバックする。
+ * familyId を省略すると従来どおり最初の一致を返す（後方互換）。
+ */
 export function lookupResolution(
   type: ResolutionType,
   contextKey: string,
   memory: ResolutionMemory,
+  familyId?: string | null,
 ): ResolutionRecord | null {
+  if (familyId != null) {
+    // 1. family スコープ一致を優先
+    const familyScoped = memory.resolutions.find(
+      (r) =>
+        r.resolution_type === type &&
+        r.context_key === contextKey &&
+        r.family_id === familyId &&
+        !r.deleted_at,
+    );
+    if (familyScoped) return familyScoped;
+    // 2. グローバル（family_id === null）へフォールバック
+    return (
+      memory.resolutions.find(
+        (r) =>
+          r.resolution_type === type &&
+          r.context_key === contextKey &&
+          r.family_id === null &&
+          !r.deleted_at,
+      ) ?? null
+    );
+  }
   return (
     memory.resolutions.find(
       (r) => r.resolution_type === type && r.context_key === contextKey && !r.deleted_at,
@@ -54,9 +83,19 @@ export function lookupResolution(
   );
 }
 
+/**
+ * resolution を追加・上書きする。
+ * 同じ resolution_type + context_key + family_id の組み合わせを一意キーとして扱う。
+ * family をまたいだ上書きは起きない。
+ */
 export function addResolution(record: ResolutionRecord, memory: ResolutionMemory): ResolutionMemory {
   const filtered = memory.resolutions.filter(
-    (r) => !(r.resolution_type === record.resolution_type && r.context_key === record.context_key),
+    (r) =>
+      !(
+        r.resolution_type === record.resolution_type &&
+        r.context_key === record.context_key &&
+        r.family_id === record.family_id
+      ),
   );
   return { ...memory, resolutions: [...filtered, record] };
 }

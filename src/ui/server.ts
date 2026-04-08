@@ -88,6 +88,24 @@ function toUserFacingCsvError(err: unknown): { message: string; detail?: string 
 
 export function createApp(baseOutputDir: string, bundleDir?: string) {
   const app = express();
+
+  // Basic auth (enabled when BASIC_AUTH_USER and BASIC_AUTH_PASS are set)
+  const authUser = process.env.BASIC_AUTH_USER;
+  const authPass = process.env.BASIC_AUTH_PASS;
+  if (authUser && authPass) {
+    app.use((req, res, next) => {
+      const header = req.headers.authorization;
+      if (!header || !header.startsWith('Basic ')) {
+        res.setHeader('WWW-Authenticate', 'Basic realm="FM Workbench"');
+        return res.status(401).send('認証が必要です');
+      }
+      const [user, pass] = Buffer.from(header.slice(6), 'base64').toString().split(':');
+      if (user === authUser && pass === authPass) return next();
+      res.setHeader('WWW-Authenticate', 'Basic realm="FM Workbench"');
+      return res.status(401).send('認証に失敗しました');
+    });
+  }
+
   app.use(express.json());
 
   // Load file profiles on startup

@@ -103,13 +103,20 @@ function globMatch(pattern: string, text: string): boolean {
  * 4. ヘッダーなしファイル × headerlessSuitable プロファイル（+20）
  * 5. マッチなし → 新規ファイル
  */
+/**
+ * ファイル名・列名・列数からプロファイル候補をマッチングする。
+ *
+ * options.knownFamilyId を渡すと、FamilyRegistry 等で事前に解決した family_id と
+ * profile.familyId が一致するプロファイルに +80 のスコアブーストを加える。
+ * これにより、ファイル名揺れや列追加削除があっても既知 family は high confidence に寄りやすくなる。
+ */
 export function matchProfile(
   filename: string,
   columns: string[],
-  options?: { isHeaderless?: boolean; columnCount?: number },
+  options?: { isHeaderless?: boolean; columnCount?: number; knownFamilyId?: string | null },
 ): ProfileMatchResult {
   const name = basename(filename);
-  const { isHeaderless = false, columnCount } = options ?? {};
+  const { isHeaderless = false, columnCount, knownFamilyId } = options ?? {};
   const scored: Array<{ profile: FileProfile; score: number; reason: string }> = [];
 
   for (const profile of registry) {
@@ -171,6 +178,12 @@ export function matchProfile(
         score += 10;
         reasons.push('ヘッダーなし向けの設定');
       }
+    }
+
+    // 5. Known family boost (+80) — FamilyRegistry で解決済みの family_id と一致
+    if (knownFamilyId != null && profile.familyId === knownFamilyId) {
+      score += 80;
+      reasons.push('過去に同種ファイルとして整備済み');
     }
 
     if (score > 0) {

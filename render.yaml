@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: fm-workbench
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node dist/ui/server.js
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 3456
+      - key: BASIC_AUTH_USER
+        sync: false
+      - key: BASIC_AUTH_PASS
+        sync: false
