@@ -139,7 +139,7 @@ async function renderDashboard() {
               <span>毎週金曜にエクスポート → 送付（列の確認を進めます）</span>
             </div>
             <div style="display:flex;gap:8px;margin-bottom:4px">
-              <span style="font-weight:600;min-width:80px;color:#92400e">GW前半</span>
+              <span style="font-weight:600;min-width:80px;color:#92400e">GW直前</span>
               <span>全ファイルの最終エクスポート → 送付</span>
             </div>
             <div style="display:flex;gap:8px">
