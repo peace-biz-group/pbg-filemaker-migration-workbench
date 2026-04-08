@@ -197,6 +197,35 @@ async function renderDashboard() {
             </div>
           </div>
         </div>
+
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:14px 16px;margin-top:16px">
+          <p style="font-size:14px;font-weight:700;color:#92400e;margin:0 0 8px 0">アポリストなど大きいファイルの場合</p>
+          <p style="font-size:13px;line-height:1.8;margin:0 0 8px 0">
+            データが数十万件以上あるファイルは、XLSX だと処理できません。<br>
+            以下の手順で <strong>2つのファイル</strong> を出してください。
+          </p>
+          <div style="font-size:13px;line-height:1.8;margin-left:4px">
+            <div style="margin-bottom:8px">
+              <strong style="color:#92400e">① 列の名前を確認するためのファイル（XLSX・1件だけ）</strong><br>
+              <span style="color:var(--text-secondary)">
+                FileMaker で対象ファイルを開き、どれか1件だけを表示した状態（対象レコードが1件）で<br>
+                Excel (.xlsx) でエクスポートしてください。列の名前を確認するためだけなので1件で十分です。<br>
+                ファイル名の例: <strong>2026-04-08_アポリスト_列定義.xlsx</strong>
+              </span>
+            </div>
+            <div>
+              <strong style="color:#92400e">② 本番データ（CSV・全件）</strong><br>
+              <span style="color:var(--text-secondary)">
+                全件が表示されている状態に戻して、<br>
+                「コンマ区切り (.csv)」形式、文字コードは「Unicode (UTF-8)」でエクスポートしてください。<br>
+                ファイル名の例: <strong>2026-04-08_アポリスト_福岡.csv</strong>
+              </span>
+            </div>
+          </div>
+          <p style="font-size:12px;color:var(--text-secondary);margin:10px 0 0 0">
+            このシステムに読み込む順番は ① → ② です。先に XLSX を読み込むと、CSV の列を自動で判定します。
+          </p>
+        </div>
       </div>
 
       <div class="card" style="text-align:center;padding:24px">
